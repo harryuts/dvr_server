@@ -1,0 +1,90 @@
+import * as configManager from "./configManager.js";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const sqlite3 = require("sqlite3").verbose();
+
+const dbPath = "./videos.db";
+let db = new sqlite3.Database(
+  dbPath,
+  sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
+  (err) => {
+    if (err) {
+      return console.error(err.message);
+    }
+    console.log("Connected to the SQLite database.");
+
+    // Create the table and only proceed once it's created
+    db.run(
+      "CREATE TABLE IF NOT EXISTS video_segments (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, channel_number TEXT, start_time INTEGER, end_time INTEGER, start_time_str TEXT, end_time_str TEXT)",
+      (createErr) => {
+        if (createErr) {
+          return console.error(createErr.message);
+        }
+      }
+    );
+    // Create the sessions table if it doesn't exist
+    db.serialize(() => {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+        )
+        `);
+    });
+
+    // Create the api_keys table if it doesn't exist
+    db.run(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      api_key TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL, -- To identify the business/user owning the key
+      name TEXT,             -- Optional: A descriptive name for the API key
+      is_active INTEGER DEFAULT 1, -- 1 for active, 0 for inactive
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      expires_at INTEGER    -- Optional: Expiration timestamp
+    )
+  `);
+  }
+);
+
+// Function to query the database and return the earliest and latest timeframes for each channel
+export async function fetchTimeframeByChannel() {
+  const channelInfo = await configManager.getRecordingConfigurations();
+  return new Promise((resolve, reject) => {
+    const query = `
+        SELECT
+          channel_number,
+          MIN(start_time) AS earliest_start_time,
+          MAX(end_time) AS latest_end_time
+        FROM video_segments
+        GROUP BY channel_number;
+      `;
+
+    db.all(query, [], (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      if (rows && rows.length > 0) {
+        const result = rows.map((row) => ({
+          channel: row.channel_number,
+          name: (channelInfo.find(entry => entry.channel === row.channel_number))?.name,
+          earliest: {
+            timestamp: row.earliest_start_time,
+            formatted: new Date(row.earliest_start_time).toLocaleString(),
+          },
+          latest: {
+            timestamp: row.latest_end_time,
+            formatted: new Date(row.latest_end_time).toLocaleString(),
+          },
+        }));
+        resolve(result);
+      } else {
+        resolve([]); // No video segments found
+      }
+    });
+  });
+}
+
+export { db };

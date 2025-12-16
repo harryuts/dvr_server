@@ -1,0 +1,64 @@
+{
+  "compilerOptions": {
+    /* Basic Options */
+    "target": "ES2020",        /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', 'ES2018', 'ES2019', 'ES2020', 'ES2021', 'ES2022', 'ESNext'. */
+    "module": "ESNext",        /* Specify module code generation: 'none', 'commonjs', 'amd', 'system', 'umd', 'es2015', 'es2020', 'esnext'. 'ESNext' is recommended for modern React projects using Vite or Rollup. */
+    "jsx": "react-jsx",        /* Specify JSX code generation: 'preserve', 'react-native', or 'react'. 'react-jsx' is the recommended option for React 17+ with the new JSX transform. */
+    "outDir": "./dist",        /* Redirect output structure to the directory. Adjust if needed. */
+    "rootDir": "./src",        /* Specify the root directory of input files. Adjust if your source is in a different folder. */
+    "strict": true,           /* Enable all strict type-checking options. Recommended for better code quality. */
+    "esModuleInterop": true,  /* Enables emit interoperability between CommonJS and ES Modules via creation of extra helper. Required for many modern libraries. */
+    "skipLibCheck": true,      /* Skip type checking of declaration files (*.d.ts). Can improve build times but might hide some issues in third-party libraries. Consider setting to `false` for stricter checking. */
+    "forceConsistentCasingInFileNames": true, /* Disallow inconsistently-cased references to the same file. Important for cross-platform consistency. */
+
+    /* Module Resolution Options */
+    "moduleResolution": "node", /* Specify module resolution strategy: 'node' (Node.js) or 'classic' (TypeScript pre-1.6). 'node' is generally preferred. */
+    "baseUrl": "./src",        /* Base directory to resolve non-absolute module names. Useful for cleaner imports. */
+    "paths": {              /* A series of entries which re-map imports to lookup locations relative to the 'baseUrl'. Useful for aliasing. */
+      "@components/*": ["components/*"],
+      "@utils/*": ["utils/*"],
+      "@pages/*": ["pages/*"],
+      // Add more aliases as needed
+    },
+
+    /* Language and Environment Options */
+    "lib": ["dom", "esnext"], /* Specify library files to be included in the compilation. 'dom' for browser APIs, 'esnext' for the latest JavaScript features. Adjust based on your target environment. */
+    "allowJs": false,         /* Allow javascript files to be compiled. Generally set to `false` for a pure TypeScript project. */
+    "checkJs": false,         /* Report errors in .js files. Only relevant if `allowJs` is true. */
+
+    /* Emit Options */
+    "declaration": true,      /* Generate '.d.ts' files from TypeScript and JavaScript files. Useful for library authors. */
+    "sourceMap": true,        /* Emit sourcemap files for debugging. */
+    "noEmitOnError": true,    /* Do not emit outputs if any errors were reported. Helps prevent broken builds. */
+
+    /* Strict Type Checking Options (part of "strict": true) */
+    // "noImplicitAny": true,    /* Raise error on expressions and declarations with an implied 'any' type. */
+    // "noImplicitThis": true,   /* Raise error on 'this' expressions whose type is implicitly 'any'. */
+    // "alwaysStrict": true,     /* Emit "use strict" directives for all JavaScript files. */
+    // "strictNullChecks": true, /* Enable strict null checks. Makes dealing with `null` and `undefined` more explicit. Highly recommended. */
+    // "strictFunctionTypes": true, /* Enable strict checking of function types. */
+    // "strictBindCallApply": true, /* Enable strict `bind`, `call`, and `apply` methods on functions. */
+    // "strictPropertyInitialization": true, /* Enable strict checking of property initialization in classes. */
+    // "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
+    // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statements that are not explicitly commented with // falls through. */
+    // "noUnusedLocals": true,   /* Report errors on unused local variables. */
+    // "noUnusedParameters": true, /* Report errors on unused parameters in functions. */
+    // "exactOptionalPropertyTypes": true, /* Ensure optional property types are written with `| undefined`. */
+    // "noImplicitOverride": true, /* Ensure overriding members in derived classes are marked with an override modifier. */
+    // "noPropertyAccessFromIndexSignature": true, /* Disallow accessing properties using string index signatures on types that also declare other properties. */
+    // "allowUnreachableCode": false, /* Do not report errors on unreachable code. Consider setting to `false` for cleaner code. */
+    // "allowUnusedLabels": false, /* Do not report errors on unused labels. Consider setting to `false` for cleaner code. */
+
+  },
+  "include": [
+    "src/**/*"             /* Specify which files TypeScript should compile. Adjust based on your source directory. */
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "public",
+    "**/*.test.*",
+    "**/*.spec.*"          /* Exclude these directories and files from compilation. */
+  ]
+}

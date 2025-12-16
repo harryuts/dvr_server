@@ -1,0 +1,13 @@
+{
+  "name": "dvr-jpeg-iot-test",
+  "version": "1.0.0",
+  "description": "Test script for DVR Server /getJpegIot API endpoint",
+  "main": "test_jpeg_iot.js",
+  "scripts": {
+    "test": "node test_jpeg_iot.js",
+    "test-custom": "node -e \"require('./test_jpeg_iot.js'); setTimeout(() => { testWithCustomParams(Date.now() - (10 * 60 * 1000), 2); }, 2000);\""
+  },
+  "keywords": ["dvr", "api", "test", "jpeg", "iot"],
+  "author": "DVR Test Script",
+  "license": "MIT"
+}
