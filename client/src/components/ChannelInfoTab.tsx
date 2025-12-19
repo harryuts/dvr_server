@@ -5,14 +5,15 @@ import { authenticatedFetch } from '../utils/api';
 
 interface ChannelInfo {
   channel: string;
+  name?: string;
   earliest: {
     timestamp: number;
     formatted: string;
-  };
+  } | null;
   latest: {
     timestamp: number;
     formatted: string;
-  };
+  } | null;
 }
 
 const ChannelInfoTab: React.FC = () => {
@@ -60,12 +61,12 @@ const ChannelInfoTab: React.FC = () => {
               {channelData.map((channelInfo) => (
                 <TableRow key={channelInfo.channel}>
                   <TableCell component="th" scope="row">
-                    {channelInfo.channel}
+                    {channelInfo.name || channelInfo.channel}
                   </TableCell>
-                  <TableCell align="right">{channelInfo.earliest.timestamp}</TableCell>
-                  <TableCell align="right">{channelInfo.earliest.formatted}</TableCell>
-                  <TableCell align="right">{channelInfo.latest.timestamp}</TableCell>
-                  <TableCell align="right">{channelInfo.latest.formatted}</TableCell>
+                  <TableCell align="right">{channelInfo.earliest?.timestamp ?? 'N/A'}</TableCell>
+                  <TableCell align="right">{channelInfo.earliest?.formatted ?? 'N/A'}</TableCell>
+                  <TableCell align="right">{channelInfo.latest?.timestamp ?? 'N/A'}</TableCell>
+                  <TableCell align="right">{channelInfo.latest?.formatted ?? 'N/A'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

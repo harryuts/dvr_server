@@ -4,6 +4,7 @@ import ScheduleSettingsTab from "../components/ScheduleSettingTab";
 import ChannelSettingsTab from "../components/ChannelSettingTab";
 import ChangePinTab from "../components/ChangePinTab";
 import ApiKeyManagementTab from "../components/ApiKeyManagementTab";
+import LiveCaptureTab from "../components/LiveCaptureTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -58,6 +59,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="Schedule" {...a11yProps(1)} />
             <Tab label="Security" {...a11yProps(2)} />
             <Tab label="API Key" {...a11yProps(3)} />
+            <Tab label="Live Capture" {...a11yProps(4)} />
           </Tabs>
         </Box>
         <TabPanel value={value} index={0}>
@@ -71,6 +73,9 @@ const SettingsPage: React.FC = () => {
         </TabPanel>
         <TabPanel value={value} index={3}>
           <ApiKeyManagementTab />
+        </TabPanel>
+        <TabPanel value={value} index={4}>
+          <LiveCaptureTab />
         </TabPanel>
       </Box>
     </Container>

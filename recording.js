@@ -4,7 +4,7 @@ import fs from "fs";
 import { spawn, exec } from "child_process";
 import os from "os";
 import storageManager from "./storage-management.js"; // Import the storage management module
-import configManager from "./configManager.js";
+import configManager, { liveCaptureFrameRate } from "./configManager.js";
 
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
 const baseVideoDirectory = configManager.baseVideoDirectory;
@@ -186,7 +186,7 @@ const startRecording = (
       "-update",
       "1",
       "-r",
-      "1",
+      liveCaptureFrameRate.toString(),
       liveJpegPath,
     ]);
     spawnedProcesses.push(ffmpegProcess);

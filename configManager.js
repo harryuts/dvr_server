@@ -9,6 +9,7 @@ const DEFAULT_PIN = "123456";
 const configFilePath = path.join(__dirname, "config.json"); // Path to your config file
 const segmentDuration = 900; // 15 minutes in seconds
 const baseVideoDirectory = "/mnt/m2nvme";
+let liveCaptureFrameRate = 1; // Default: 1 frame per second
 
 async function readConfig() {
   try {
@@ -32,6 +33,8 @@ async function writeConfig(config) {
 
 async function initializeConfig() {
   const config = await readConfig();
+
+  // Initialize PIN if not set
   if (!config.storedPinHash) {
     const defaultPin = DEFAULT_PIN;
     const saltRounds = 10;
@@ -43,6 +46,16 @@ async function initializeConfig() {
       console.error("Error hashing default PIN:", error);
     }
   }
+
+  // Initialize live capture frame rate if not set
+  if (!config.liveCaptureFrameRate) {
+    config.liveCaptureFrameRate = 1;
+    await writeConfig(config);
+    console.log("Config file initialized with default live capture frame rate (1 FPS).");
+  }
+
+  // Load live capture frame rate into memory
+  liveCaptureFrameRate = config.liveCaptureFrameRate || 1;
 }
 
 initializeConfig();
@@ -111,10 +124,25 @@ export async function deleteRecordingConfiguration(channelToDelete) {
   return true;
 }
 
-export { segmentDuration, baseVideoDirectory };
+export async function getLiveCaptureFrameRate() {
+  const config = await readConfig();
+  return config.liveCaptureFrameRate || 1;
+}
+
+export async function updateLiveCaptureFrameRate(frameRate) {
+  const config = await readConfig();
+  config.liveCaptureFrameRate = parseInt(frameRate, 10);
+  await writeConfig(config);
+  // Update in-memory value
+  liveCaptureFrameRate = config.liveCaptureFrameRate;
+  return true;
+}
+
+export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate };
 export default {
   segmentDuration,
   baseVideoDirectory,
+  liveCaptureFrameRate,
   getStoredPinHash,
   updateStoredPinHash,
   getSchedule,
@@ -123,4 +151,6 @@ export default {
   updateRecordingConfiguration,
   addRecordingConfiguration,
   deleteRecordingConfiguration,
+  getLiveCaptureFrameRate,
+  updateLiveCaptureFrameRate,
 };

@@ -2,6 +2,7 @@ import express from "express";
 import { authenticateSession } from "../authentication.js";
 import { db } from "../dbFunctions.js";
 import crypto from "crypto";
+import configManager from "../configManager.js";
 
 const router = express.Router();
 
@@ -141,6 +142,39 @@ router.delete("/api-keys/:apiKey", authenticateSession, (req, res) => {
       }
     }
   );
+});
+
+// Get live capture configuration
+router.get("/live-capture-config", authenticateSession, async (req, res) => {
+  try {
+    const frameRate = await configManager.getLiveCaptureFrameRate();
+    res.json({ liveCaptureFrameRate: frameRate });
+  } catch (error) {
+    console.error("Error fetching live capture config:", error);
+    res.status(500).json({ message: "Failed to fetch live capture configuration", error: error.message });
+  }
+});
+
+// Update live capture configuration
+router.post("/live-capture-config", authenticateSession, async (req, res) => {
+  const { liveCaptureFrameRate } = req.body;
+
+  if (!liveCaptureFrameRate || ![1, 2, 3].includes(parseInt(liveCaptureFrameRate))) {
+    return res.status(400).json({ message: "Invalid frame rate. Must be 1, 2, or 3 FPS." });
+  }
+
+  try {
+    await configManager.updateLiveCaptureFrameRate(liveCaptureFrameRate);
+
+    // Restart all recordings to apply new frame rate
+    const { restartAllRecordings } = await import("../scheduleRecording.js");
+    await restartAllRecordings();
+
+    res.json({ message: "Live capture frame rate updated successfully. Recordings restarted." });
+  } catch (error) {
+    console.error("Error updating live capture config:", error);
+    res.status(500).json({ message: "Failed to update live capture configuration", error: error.message });
+  }
 });
 
 export default router;

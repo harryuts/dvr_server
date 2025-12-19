@@ -1,33 +1,44 @@
 import React, { useState } from "react";
- import { useNavigate } from "react-router-dom";
- import { useForm, SubmitHandler } from "react-hook-form";
- import { yupResolver } from "@hookform/resolvers/yup";
- import * as yup from "yup";
- import { TextField, Button, Container, Typography, Alert } from "@mui/material";
- import { getApiBaseUrl } from "../utils/apiConfig"; // Import the function
+import { useNavigate } from "react-router-dom";
+import { useForm, SubmitHandler } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import * as yup from "yup";
+import {
+  TextField,
+  Button,
+  Container,
+  Typography,
+  Alert,
+  Card,
+  CardContent,
+  Box,
+  Fade
+} from "@mui/material";
+import { LockOutlined } from "@mui/icons-material";
+import { getApiBaseUrl } from "../utils/apiConfig";
 
- interface LoginFormValues {
+interface LoginFormValues {
   pin: string;
- }
+}
 
- interface LoginResponse {
+interface LoginResponse {
   token: string;
-  expiresIn: number; // Expecting the backend to return the expiration timestamp (in ms)
+  expiresIn: number;
   message?: string;
- }
+}
 
- interface LoginPageProps {
-  onLoginSuccess: () => void; // Prop to notify the App component of successful login
- }
+interface LoginPageProps {
+  onLoginSuccess: () => void;
+}
 
- const loginSchema = yup.object().shape({
+const loginSchema = yup.object().shape({
   pin: yup
     .string()
     .required("PIN is required")
     .matches(/^\d{6}$/, "PIN must be a 6-digit number"),
- });
+});
 
- const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const {
     register,
     handleSubmit,
@@ -59,7 +70,7 @@ import React, { useState } from "react";
           expiresIn: responseData.expiresIn,
         };
         localStorage.setItem("authToken", JSON.stringify(authData));
-        onLoginSuccess(); // Notify the App component
+        onLoginSuccess();
         navigate("/playback");
       } else {
         const errorData = await response.json();
@@ -75,30 +86,90 @@ import React, { useState } from "react";
 
   return (
     <Container maxWidth="xs">
-      <Typography variant="h4" component="h1" gutterBottom>
-        Login with PIN
-      </Typography>
-      {loginError && <Alert severity="error">{loginError}</Alert>}
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <TextField
-          label="PIN (6 digits)"
-          type="password"
-          fullWidth
-          margin="normal"
-          {...register("pin")}
-          error={!!errors.pin}
-          helperText={errors.pin?.message}
-        />
-        <Button
-          type="submit"
-          variant="contained"
-          color="primary"
-          fullWidth
-          disabled={isSubmitting}
+      <Fade in timeout={600}>
+        <Box
+          sx={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          {isSubmitting ? "Logging In..." : "Login"}
-        </Button>
-      </form>
+          <Card
+            elevation={2}
+            sx={{
+              width: '100%',
+              borderRadius: 3,
+            }}
+          >
+            <CardContent sx={{ p: 4 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  mb: 3,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '50%',
+                    bgcolor: 'primary.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mb: 2,
+                  }}
+                >
+                  <LockOutlined sx={{ color: 'white', fontSize: 28 }} />
+                </Box>
+                <Typography variant="h5" component="h1" fontWeight={600} gutterBottom>
+                  DVR System
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Enter your PIN to continue
+                </Typography>
+              </Box>
+
+              {loginError && (
+                <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+                  {loginError}
+                </Alert>
+              )}
+
+              <form onSubmit={handleSubmit(onSubmit)}>
+                <TextField
+                  label="PIN (6 digits)"
+                  type="password"
+                  fullWidth
+                  margin="normal"
+                  {...register("pin")}
+                  error={!!errors.pin}
+                  helperText={errors.pin?.message}
+                  sx={{ mb: 2 }}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  size="large"
+                  disabled={isSubmitting}
+                  sx={{
+                    py: 1.5,
+                    fontSize: '1rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  {isSubmitting ? "Logging In..." : "Login"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </Box>
+      </Fade>
     </Container>
   );
 };

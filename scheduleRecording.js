@@ -181,4 +181,41 @@ export const scheduleRecording = async (db, spawnedProcesses) => {
   }, msUntilTime(startTime.hour, startTime.minute));
 };
 
+// Function to restart all active recordings (used when live capture config changes)
+export const restartAllRecordings = async () => {
+  console.log("Restarting all recordings to apply new configuration...");
+
+  // Get all active recording channels
+  const activeChannels = Object.keys(recordingControls);
+
+  if (activeChannels.length === 0) {
+    console.log("No active recordings to restart.");
+    return;
+  }
+
+  // Stop all recordings
+  for (const channel of activeChannels) {
+    const recordingControl = recordingControls[channel];
+    if (recordingControl && recordingControl.process) {
+      try {
+        console.log(`Stopping recording for channel ${channel}...`);
+        recordingControl.process.stdin.write("q");
+        recordingControl.process.stdin.end();
+      } catch (e) {
+        console.log(`Error stopping recording for channel ${channel}:`, e);
+      }
+    }
+  }
+
+  // Wait a bit for processes to terminate
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Clear recording controls
+  for (const channel of activeChannels) {
+    delete recordingControls[channel];
+  }
+
+  console.log("All recordings stopped. They will restart automatically.");
+};
+
 export { getStopRecording, recordingControls };
