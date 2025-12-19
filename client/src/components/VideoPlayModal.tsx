@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import {
   Box,
   Modal,
@@ -14,9 +14,18 @@ interface VideoPlayModalProps {
   isOpen: boolean;
   onClose: () => void;
   channelName: string;
-  videoData: { outputFile?: string; error?: string };
+  videoData: {
+    outputFile?: string;
+    error?: string;
+    from?: string;
+    to?: string;
+    fromEpoch?: number;
+    toEpoch?: number;
+  };
   loading: boolean;
   apiError: string | null;
+  onVideoEnded?: () => void;
+  seekOffset?: number;
 }
 
 const modalStyle = {
@@ -39,15 +48,36 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
   videoData,
   loading,
   apiError,
+  onVideoEnded,
+  seekOffset = 0,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isOpen && videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
   }, [isOpen]);
+
+  // Auto-play when new video is loaded - start from seekOffset or beginning
+  useEffect(() => {
+    if (videoData.outputFile && videoRef.current) {
+      console.log(`[VideoPlayModal] New video loaded: ${videoData.outputFile}, seeking to: ${seekOffset}s`);
+      videoRef.current.currentTime = seekOffset;
+      videoRef.current.load();
+      videoRef.current.play().catch((err) => {
+        console.warn("[VideoPlayModal] Autoplay blocked or failed:", err);
+      });
+    }
+  }, [videoData.outputFile, seekOffset]);
+
+  const handleVideoEnded = () => {
+    console.log(`[VideoPlayModal] Video ended event triggered. Prop onVideoEnded exists: ${!!onVideoEnded}`);
+    if (onVideoEnded) {
+      onVideoEnded();
+    }
+  };
 
   return (
     <Modal
@@ -71,6 +101,11 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
           gutterBottom
         >
           {`CCTV Video - ${channelName}`}
+          {videoData.from && videoData.to && (
+            <span style={{ fontSize: "0.8em", marginLeft: "10px", color: "gray" }}>
+              - {videoData.from} to {videoData.to}
+            </span>
+          )}
         </Typography>
         {loading && (
           <Box
@@ -93,8 +128,10 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
             style={{ width: "100%", height: "auto" }}
           >
             <video
+              key={videoData.outputFile}
               ref={videoRef}
               controls
+              onEnded={handleVideoEnded}
               style={{ width: "100%", height: "auto", objectFit: "contain" }}
             >
               <source

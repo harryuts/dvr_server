@@ -66,23 +66,35 @@ export async function fetchTimeframeByChannel() {
         return;
       }
 
+      // Create a map of channel data from database
+      const dbChannelMap = new Map();
       if (rows && rows.length > 0) {
-        const result = rows.map((row) => ({
-          channel: row.channel_number,
-          name: (channelInfo.find(entry => entry.channel === row.channel_number))?.name,
-          earliest: {
-            timestamp: row.earliest_start_time,
-            formatted: new Date(row.earliest_start_time).toLocaleString(),
-          },
-          latest: {
-            timestamp: row.latest_end_time,
-            formatted: new Date(row.latest_end_time).toLocaleString(),
-          },
-        }));
-        resolve(result);
-      } else {
-        resolve([]); // No video segments found
+        rows.forEach((row) => {
+          dbChannelMap.set(row.channel_number, {
+            earliest: {
+              timestamp: row.earliest_start_time,
+              formatted: new Date(row.earliest_start_time).toLocaleString(),
+            },
+            latest: {
+              timestamp: row.latest_end_time,
+              formatted: new Date(row.latest_end_time).toLocaleString(),
+            },
+          });
+        });
       }
+
+      // Return all configured channels, with DB data if available
+      const result = channelInfo.map((config) => {
+        const dbData = dbChannelMap.get(config.channel);
+        return {
+          channel: config.channel,
+          name: config.name,
+          earliest: dbData?.earliest || null,
+          latest: dbData?.latest || null,
+        };
+      });
+
+      resolve(result);
     });
   });
 }

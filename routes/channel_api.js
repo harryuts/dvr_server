@@ -89,13 +89,7 @@ router.delete("/config/:channel", authenticateSession, async (req, res) => {
 router.get("/timeframe", authenticateSession, async (req, res) => {
   try {
     const timeframeDataByChannel = await fetchTimeframeByChannel();
-    if (timeframeDataByChannel && timeframeDataByChannel.length > 0) {
-      res.json(timeframeDataByChannel);
-    } else {
-      res
-        .status(404)
-        .json({ message: "No video segments found in the database" });
-    }
+    res.json(timeframeDataByChannel);
   } catch (error) {
     console.error(error.message);
     res.status(500).json({ error: "Failed to query the database" });

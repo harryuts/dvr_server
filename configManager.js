@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PIN = "123456";
 const configFilePath = path.join(__dirname, "config.json"); // Path to your config file
-const segmentDuration = 15;
+const segmentDuration = 900; // 15 minutes in seconds
 const baseVideoDirectory = "/mnt/m2nvme";
 
 async function readConfig() {

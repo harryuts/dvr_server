@@ -33,7 +33,12 @@ import { getAuthData } from "../utils/auth";
 interface VideoData {
   outputFile?: string;
   error?: string;
+  from?: string;
+  to?: string;
+  fromEpoch?: number;
+  toEpoch?: number;
 }
+
 
 interface ChannelInfo {
   channel: string;
@@ -91,12 +96,11 @@ const PlaybackPage: React.FC = () => {
   }, [tabIndex]);
 
   const now = new Date();
-  const sixMinutesFromNow = new Date(now.getTime() - 6 * 60 * 1000);
-  const oneMinuteFromNow = new Date(now.getTime() - 1 * 60 * 1000);
+  const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000);
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(now);
-  const [startTime, setStartTime] = useState<Date | null>(sixMinutesFromNow);
-  const [endTime, setEndTime] = useState<Date | null>(oneMinuteFromNow);
+  const [startTime, setStartTime] = useState<Date | null>(thirtySecondsAgo);
+  const [endTime, setEndTime] = useState<Date | null>(now);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [videoData, setVideoData] = useState<VideoData>({});
   const [loading, setLoading] = useState(false);
@@ -105,6 +109,7 @@ const PlaybackPage: React.FC = () => {
   const [channelData, setChannelData] = useState<ChannelInfo[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [liveModalChannel, setLiveModalChannel] = useState<ChannelInfo | null>(null);
+  const [seekOffset, setSeekOffset] = useState<number>(0);
 
   const handleOpenLiveModal = (channelInfo: ChannelInfo) => {
     setLiveModalChannel(channelInfo);
@@ -184,6 +189,48 @@ const PlaybackPage: React.FC = () => {
       }
     } else {
       alert("Please select a date, start time, end time, and channel.");
+    }
+  };
+
+  // Handler for when video playback ends - fetches more video from the server
+  const handleVideoEnded = async () => {
+    if (!selectedChannel) return;
+
+    const now = Date.now();
+    const lastEndTime = videoData.toEpoch || (videoData.to ? new Date(videoData.to).getTime() : endTime?.getTime() || now);
+
+    console.log(`[PlaybackPage] handleVideoEnded. now: ${now}, lastEndTime: ${lastEndTime}, diff: ${now - lastEndTime}ms`);
+
+    console.log(`[PlaybackPage] Continuation triggered. Fetching from ${new Date(lastEndTime).toLocaleTimeString()} to now`);
+
+    setLoading(true);
+    setApiError(null);
+
+    const apiUrl = `${getApiBaseUrl()}/api/getVideo?channelNumber=${selectedChannel}&startTime=${lastEndTime}&endTime=${now}`;
+
+    try {
+      const response = await authenticatedFetch(apiUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      // Calculate seek offset: position in new video where we should resume
+      // The new video starts at `data.fromEpoch`, we want to start at `lastEndTime`
+      if (data.fromEpoch) {
+        const newVideoStartTime = data.fromEpoch;
+        const offsetMs = lastEndTime - newVideoStartTime;
+        const offsetSeconds = Math.max(0, offsetMs / 1000);
+        console.log(`Seeking to ${offsetSeconds}s in continuation video (New video start: ${new Date(newVideoStartTime).toLocaleTimeString()})`);
+        setSeekOffset(offsetSeconds);
+      } else {
+        setSeekOffset(0);
+      }
+      setVideoData(data);
+    } catch (error: unknown) {
+      console.error("Error fetching continuation video:", error);
+      setApiError("Failed to fetch video continuation.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -323,6 +370,7 @@ const PlaybackPage: React.FC = () => {
         videoData={videoData}
         loading={loading}
         apiError={apiError}
+        onVideoEnded={handleVideoEnded}
       />
 
       {/* Live View Modal */}

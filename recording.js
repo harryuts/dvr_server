@@ -6,7 +6,7 @@ import os from "os";
 import storageManager from "./storage-management.js"; // Import the storage management module
 import configManager from "./configManager.js";
 
-const CAPTURE_SEGMENT_DURATION = 15;
+const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
 const baseVideoDirectory = configManager.baseVideoDirectory;
 const MAX_STORAGE_PERCENTAGE = 90;
 const recordingStatus = {};
@@ -133,28 +133,28 @@ const startRecording = (
     const year = format(currentDate, "yyyy");
     const month = format(currentDate, "MM");
     const day = format(currentDate, "dd");
-    const formattedDateForFile = format(currentDate, "yyyyMMddHHmmss");
     const channelDirectoryPath = path.join(
       channelDirectoryBase,
       year,
       month,
       day
     );
+    // Use strftime pattern for segment filenames (Shinobi-style)
     const segmentFileTemplate = path.join(
       channelDirectoryPath,
-      `capture_${formattedDateForFile}_%06d.mp4`
+      `%Y-%m-%dT%H-%M-%S.mp4`
     );
 
     if (!fs.existsSync(channelDirectoryPath)) {
-      fs.mkdirSync(channelDirectoryPath, { recursive: true, mode: 0o755 }); // Ensure proper permissions
-      console.log(`Directory created: ${channelDirectoryPath}`);
-    } else {
-      console.log(`Directory already exists: ${channelDirectoryPath}`);
+      fs.mkdirSync(channelDirectoryPath, { recursive: true, mode: 0o755 });
+      console.log(`[${channel_number}] Directory created: ${channelDirectoryPath}`);
     }
 
     console.log(`[${channel_number}] Spawning ffmpeg process...`);
     let isKilling = false;
     const liveJpegPath = path.join(channelDirectoryBase, "live.jpg");
+    let currentSegmentStartTime = null;
+
     ffmpegProcess = spawn("ffmpeg", [
       "-rtsp_transport",
       "tcp",
@@ -169,8 +169,14 @@ const startRecording = (
       "segment",
       "-segment_time",
       CAPTURE_SEGMENT_DURATION.toString(),
+      "-segment_atclocktime",
+      "1",
+      "-strftime",
+      "1",
       "-reset_timestamps",
       "1",
+      "-segment_format_options",
+      "movflags=+frag_keyframe+empty_moov",
       "-y",
       segmentFileTemplate,
       // Live JPEG output
@@ -180,7 +186,7 @@ const startRecording = (
       "-update",
       "1",
       "-r",
-      "1", // Update once per second
+      "1",
       liveJpegPath,
     ]);
     spawnedProcesses.push(ffmpegProcess);
@@ -205,35 +211,48 @@ const startRecording = (
       resetInactivityTimer();
       const stderrOutput = data.toString();
       updateUptime(channel_number, recordingStartTime);
-      if (stderrOutput.includes("Opening")) {
-        const startTime = Date.now() - CAPTURE_SEGMENT_DURATION * 1000;
-        const endTime = startTime + CAPTURE_SEGMENT_DURATION * 1000;
-        const match =
-          /Opening '(.*\/capture\/ch\d+\/(\d{4})\/(\d{2})\/(\d{2})\/(capture_\d+_\d+\.mp4))'/i.exec(
-            stderrOutput
+
+      // Detect new segment opening (strftime format: YYYY-MM-DDTHH-MM-SS.mp4)
+      const openingMatch = /Opening '([^']+(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.mp4)'/i.exec(stderrOutput);
+      if (openingMatch && openingMatch[1]) {
+        const newFile = openingMatch[1];
+        const timestampStr = openingMatch[2]; // e.g., "2024-12-19T15-30-00"
+        console.log(`[${channel_number}] FFmpeg opened new segment: ${newFile}`);
+
+        // If we had a previous segment, insert its DB record now
+        if (segmentFile && currentSegmentStartTime) {
+          const endTime = Date.now();
+          console.log(`[${channel_number}] Segment finished. Finalizing record for ${segmentFile}`);
+          db.run(
+            "INSERT INTO video_segments (filename, channel_number, start_time, end_time, start_time_str, end_time_str) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+              segmentFile,
+              channel_number,
+              currentSegmentStartTime,
+              endTime,
+              new Date(currentSegmentStartTime).toLocaleTimeString(),
+              new Date(endTime).toLocaleTimeString(),
+            ],
+            (err) => {
+              if (err) {
+                console.error(`[${channel_number}] DB Insert Error: ${err.message}`);
+              } else {
+                console.log(`[${channel_number}] DB Insert Success for segment: ${path.basename(segmentFile)}`);
+              }
+            }
           );
-        if (match && match[1]) {
-          const currentFile = match[1];
-          updateRecordingStatus(channel_number, {
-            currentSegmentFile: currentFile,
-          });
-          if (!segmentFile) {
-            segmentFile = currentFile;
-          } else {
-            db.run(
-              "INSERT INTO video_segments (filename, channel_number, start_time, end_time, start_time_str, end_time_str) VALUES (?, ?, ?, ?, ?, ?)",
-              [
-                segmentFile,
-                channel_number,
-                startTime,
-                endTime,
-                new Date(parseInt(startTime)).toLocaleTimeString(),
-                new Date(parseInt(endTime)).toLocaleTimeString(),
-              ]
-            );
-            segmentFile = currentFile;
-          }
         }
+
+        // Update to new segment
+        segmentFile = newFile;
+        // Parse timestamp from filename
+        const parsedTime = new Date(timestampStr.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3'));
+        currentSegmentStartTime = parsedTime.getTime();
+        updateRecordingStatus(channel_number, {
+          currentSegmentFile: newFile,
+          currentSegmentStartTime: currentSegmentStartTime,
+        });
+
         checkStorageAndCleanup();
       } else if (
         stderrOutput.includes("Connection refused") ||
