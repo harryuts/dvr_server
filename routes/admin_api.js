@@ -76,10 +76,15 @@ router.get("/api-keys/:apiKey", authenticateSession, (req, res) => {
 // Update an API key (admin only - e.g., name, expiration, status)
 router.put("/api-keys/:apiKey", authenticateSession, async (req, res) => {
   const apiKeyToUpdate = req.params.apiKey;
-  const { name, isActive, expiresAt } = req.body;
+  const { name, isActive, expiresAt, newApiKey } = req.body;
 
   const updates = [];
   const params = [];
+
+  if (newApiKey !== undefined) {
+    updates.push("api_key = ?");
+    params.push(newApiKey);
+  }
 
   if (name !== undefined) {
     updates.push("name = ?");
