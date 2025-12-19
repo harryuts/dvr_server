@@ -154,11 +154,14 @@ const startRecording = (
 
     console.log(`[${channel_number}] Spawning ffmpeg process...`);
     let isKilling = false;
+    const liveJpegPath = path.join(channelDirectoryBase, "live.jpg");
     ffmpegProcess = spawn("ffmpeg", [
       "-rtsp_transport",
       "tcp",
       "-i",
       CAPTURE_SOURCE_URL,
+      // Recording output
+      "-map", "0:v",
       "-c:v",
       "copy",
       "-an",
@@ -170,6 +173,15 @@ const startRecording = (
       "1",
       "-y",
       segmentFileTemplate,
+      // Live JPEG output
+      "-map", "0:v",
+      "-f",
+      "image2",
+      "-update",
+      "1",
+      "-r",
+      "1", // Update once per second
+      liveJpegPath,
     ]);
     spawnedProcesses.push(ffmpegProcess);
     console.log(

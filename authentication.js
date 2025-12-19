@@ -33,7 +33,7 @@ async function createSession() {
 
 // Middleware to authenticate requests using session ID
 export async function authenticateSession(req, res, next) {
-  const sessionId = req.headers.authorization;
+  const sessionId = req.headers.authorization || req.query.token;
   if (!sessionId) {
     return res
       .status(401)

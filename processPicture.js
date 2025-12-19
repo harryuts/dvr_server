@@ -346,6 +346,12 @@ export async function getJpegLive(req, res) {
 
   console.log("✅ Found channel configuration:", channelConfig);
 
+  const livePath = path.join(configManager.baseVideoDirectory, "capture", channelNumber, "live.jpg");
+  if (fs.existsSync(livePath)) {
+    console.log("✅ Serving shared live feed:", livePath);
+    return res.sendFile(livePath);
+  }
+
   // Process the live capture
   process_jpeg_live(res, channelConfig.recordUrl, channelNumber, orderId);
 }
