@@ -24,6 +24,26 @@ export const getRecordingStatus = (channel_number) => {
   );
 };
 
+const channelLogs = {};
+const MAX_LOG_LINES = 100;
+
+export const getChannelLogs = (channel_number) => {
+  return channelLogs[channel_number] || [];
+};
+
+const addLog = (channel_number, message) => {
+  if (!channelLogs[channel_number]) {
+    channelLogs[channel_number] = [];
+  }
+  const timestamp = new Date().toISOString();
+  const logLine = `[${timestamp}] ${message}`;
+
+  channelLogs[channel_number].push(logLine);
+  if (channelLogs[channel_number].length > MAX_LOG_LINES) {
+    channelLogs[channel_number].shift();
+  }
+};
+
 const updateRecordingStatus = (channel_number, newStatus) => {
   recordingStatus[channel_number] = {
     ...recordingStatus[channel_number],
@@ -39,6 +59,7 @@ const startRecording = (
 ) => {
   let segmentFile;
   let isRecording = true;
+  let manualStop = false;
   let ffmpegProcess = null;
   let inactivityTimeout;
   const INACTIVITY_THRESHOLD = 90 * 1000;
@@ -81,49 +102,102 @@ const startRecording = (
 
   const storageCheckInterval = setInterval(checkStorageAndCleanup, 60 * 1000);
 
-  const killFFmpeg = (pid) => {
-    return new Promise((resolve, reject) => {
-      const killCommand = `kill ${pid}`; //${signal}
-      console.log(`[${channel_number}] Executing kill command: ${killCommand}`);
-      exec(killCommand, (error, stdout, stderr) => {
-        if (error) {
-          console.error(
-            `[${channel_number}] Error killing ffmpeg (PID: ${pid}): ${error}`
-          );
-          reject(error);
-          return;
+  // Robust kill function similar to Shinobi's escalation strategy
+  const killRobustly = async (pid) => {
+    try {
+      console.log(`[${channel_number}] Attempting graceful kill (SIGTERM) for PID: ${pid}`);
+      process.kill(pid, 'SIGTERM');
+
+      // Wait for process to exit
+      let checkCount = 0;
+      while (checkCount < 10) { // Wait up to 5 seconds (10 * 500ms)
+        try {
+          process.kill(pid, 0); // Check if process exists
+          await new Promise(r => setTimeout(r, 500));
+          checkCount++;
+        } catch (e) {
+          console.log(`[${channel_number}] Process ${pid} has exited.`);
+          return; // Process is gone
         }
-        console.log(
-          `[${channel_number}] Successfully sent kill to ffmpeg (PID: ${pid}).`
-        );
-        resolve();
-      });
+      }
+
+      console.log(`[${channel_number}] Process ${pid} did not exit. Escalating to SIGKILL.`);
+      process.kill(pid, 'SIGKILL');
+
+      // Final verification
+      try {
+        // Give it a moment to die
+        await new Promise(r => setTimeout(r, 1000));
+        process.kill(pid, 0);
+        console.error(`[${channel_number}] CRITICAL: Process ${pid} STILL exists after SIGKILL.`);
+      } catch (e) {
+        console.log(`[${channel_number}] Process ${pid} successfully killed with SIGKILL.`);
+      }
+
+    } catch (e) {
+      if (e.code === 'ESRCH') {
+        console.log(`[${channel_number}] Process ${pid} already dead.`);
+      } else {
+        console.error(`[${channel_number}] Error killing process ${pid}:`, e);
+      }
+    }
+  };
+
+  const startFileWatcher = (dir) => {
+    // Clear existing watcher if any
+    if (recordingStatus[channel_number]?.fileWatcher) {
+      recordingStatus[channel_number].fileWatcher.close();
+    }
+
+    let lastChangeTime = Date.now();
+
+    // Watch for changes in the directory
+    const watcher = fs.watch(dir, (eventType, filename) => {
+      if (filename && (filename.endsWith('.mp4') || filename.endsWith('.jpg'))) {
+        lastChangeTime = Date.now();
+        resetInactivityTimer(); // Reset the backup timer as well
+      }
     });
+
+    // Periodic check for zombie detection based on file changes
+    const zombieCheckInterval = setInterval(async () => {
+      if (!isRecording) {
+        clearInterval(zombieCheckInterval);
+        watcher.close();
+        return;
+      }
+
+      const timeSinceLastChange = Date.now() - lastChangeTime;
+      // Shinobi uses a cutoff factor, we'll use 1.5x segment duration or a minimum of 30s
+      const threshold = Math.max(CAPTURE_SEGMENT_DURATION * 1000 * 1.5, 30000);
+
+      if (timeSinceLastChange > threshold) {
+        console.warn(`[${channel_number}] ZOMBIE DETECTED! No file changes for ${(timeSinceLastChange / 1000).toFixed(1)}s. Restarting...`);
+        clearInterval(zombieCheckInterval);
+        watcher.close();
+
+        if (ffmpegProcess) {
+          isRecording = false; // Prevent auto-restart loop from exit handler for a moment
+          await killRobustly(ffmpegProcess.pid);
+          setTimeout(restartRecording, 1000);
+        }
+      }
+    }, 10000); // Check every 10 seconds
+
+    recordingStatus[channel_number].fileWatcher = watcher;
+    recordingStatus[channel_number].zombieCheckInterval = zombieCheckInterval;
   };
 
   const resetInactivityTimer = () => {
     clearTimeout(inactivityTimeout);
     inactivityTimeout = setTimeout(async () => {
-      console.log(`[${channel_number}] Inactivity detected. Restarting...`);
-      isRecording = false;
+      console.log(`[${channel_number}] Inactivity detected (no stdout/stderr). Restarting...`);
+      isRecording = false; // Prevent auto-restart loop from exit handler for a moment
       updateRecordingStatus(channel_number, { isRecording: false });
-      if (ffmpegProcess && !ffmpegProcess.killed) {
-        try {
-          await killFFmpeg(ffmpegProcess.pid);
-          await new Promise((resolve) => setTimeout(resolve, KILL_TIMEOUT));
-          if (ffmpegProcess && !ffmpegProcess.killed) {
-            console.log(
-              `[${channel_number}] ffmpeg (PID: ${ffmpegProcess.pid}) did not terminate after SIGTERM. Using SIGKILL.`
-            );
-            await killFFmpeg(ffmpegProcess.pid);
-          }
-        } catch (error) {
-          console.error(
-            `[${channel_number}] Error during kill process: ${error}`
-          );
-        }
+      if (ffmpegProcess) {
+        await killRobustly(ffmpegProcess.pid);
+        setTimeout(restartRecording, 1000);
       }
-      setTimeout(restartRecording, 1000);
     }, INACTIVITY_THRESHOLD);
   };
 
@@ -149,6 +223,9 @@ const startRecording = (
       fs.mkdirSync(channelDirectoryPath, { recursive: true, mode: 0o755 });
       console.log(`[${channel_number}] Directory created: ${channelDirectoryPath}`);
     }
+
+    // Start monitoring the capture directory for activity
+    startFileWatcher(channelDirectoryBase);
 
     console.log(`[${channel_number}] Spawning ffmpeg process...`);
     let isKilling = false;
@@ -205,12 +282,14 @@ const startRecording = (
     ffmpegProcess.stdout.on("data", (data) => {
       resetInactivityTimer();
       updateUptime(channel_number, recordingStartTime);
+      // Optional: Add stdout to logs if verbose logging is desired (ffmpeg usually outputs stats to stderr)
     });
 
     ffmpegProcess.stderr.on("data", (data) => {
       resetInactivityTimer();
       const stderrOutput = data.toString();
       updateUptime(channel_number, recordingStartTime);
+      addLog(channel_number, stderrOutput.trim()); // Capture stderr to live logs
 
       // Detect new segment opening (strftime format: YYYY-MM-DDTHH-MM-SS.mp4)
       const openingMatch = /Opening '([^']+(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.mp4)'/i.exec(stderrOutput);
@@ -267,20 +346,7 @@ const startRecording = (
         isKilling = true;
         if (ffmpegProcess && !ffmpegProcess.killed) {
           (async () => {
-            try {
-              await killFFmpeg(ffmpegProcess.pid, "SIGTERM");
-              await new Promise((resolve) => setTimeout(resolve, KILL_TIMEOUT));
-              if (ffmpegProcess && !ffmpegProcess.killed) {
-                console.log(
-                  `[${channel_number}] ffmpeg (PID: ${ffmpegProcess.pid}) did not terminate after SIGTERM. Using SIGKILL.`
-                );
-                await killFFmpeg(ffmpegProcess.pid, "SIGKILL");
-              }
-            } catch (error) {
-              console.error(
-                `[${channel_number}] Error during kill process: ${error}`
-              );
-            }
+            await killRobustly(ffmpegProcess.pid);
             setTimeout(restartRecording, 5000);
           })();
         } else {
@@ -294,6 +360,45 @@ const startRecording = (
       console.log(
         `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}`
       );
+
+      // Finalize the last video segment if it exists
+      if (segmentFile && currentSegmentStartTime) {
+        const endTime = Date.now();
+        console.log(`[${channel_number}] Process exit. Finalizing record for last segment: ${segmentFile}`);
+        db.run(
+          "INSERT INTO video_segments (filename, channel_number, start_time, end_time, start_time_str, end_time_str) VALUES (?, ?, ?, ?, ?, ?)",
+          [
+            segmentFile,
+            channel_number,
+            currentSegmentStartTime,
+            endTime,
+            new Date(currentSegmentStartTime).toLocaleTimeString(),
+            new Date(endTime).toLocaleTimeString(),
+          ],
+          (err) => {
+            if (err) {
+              console.error(`[${channel_number}] DB Insert Error (Final): ${err.message}`);
+            } else {
+              console.log(`[${channel_number}] DB Insert Success (Final) for segment: ${path.basename(segmentFile)}`);
+            }
+          }
+        );
+      }
+
+      if (manualStop) {
+        console.log(`[${channel_number}] Recording stopped manually.`);
+        spawnedProcesses = spawnedProcesses.filter(
+          (child) => child.pid !== ffmpegProcess.pid
+        );
+        ffmpegProcess = null;
+        updateRecordingStatus(channel_number, {
+          pid: null,
+          currentSegmentFile: null,
+          isRecording: false
+        });
+        return;
+      }
+
       spawnedProcesses = spawnedProcesses.filter(
         (child) => child.pid !== ffmpegProcess.pid
       );
@@ -338,6 +443,9 @@ const startRecording = (
       console.error(
         `[${channel_number}] Error spawning ffmpeg: ${err.message}`
       );
+
+      if (manualStop) return;
+
       console.log(
         `[${channel_number}] Attempting to restart ffmpeg in 5 seconds...`
       );
@@ -356,6 +464,10 @@ const startRecording = (
     console.log(
       `[${channel_number}] Entering restartRecording. isRecording: ${isRecording}`
     );
+    if (manualStop) {
+      console.log(`[${channel_number}] Not restarting because manual stop is requested.`);
+      return;
+    }
     if (!isRecording) {
       console.log(`[${channel_number}] Attempting to restart recording...`);
       isRecording = true;
@@ -397,6 +509,27 @@ const startRecording = (
   return {
     process: ffmpegProcess,
     getStatus: () => getRecordingStatus(channel_number),
+    stop: async () => {
+      console.log(`[${channel_number}] Manual stop requested.`);
+      manualStop = true;
+      isRecording = false;
+      if (ffmpegProcess) {
+        try {
+          ffmpegProcess.stdin.write("q");
+          ffmpegProcess.stdin.end();
+        } catch (e) {
+          console.log(`[${channel_number}] JSON write error (process might be dead):`, e);
+        }
+        // Forcing kill if not dead quickly? The exit handler handles cleanup.
+        // If we really want to ensure it dies:
+        if (ffmpegProcess && !ffmpegProcess.killed) {
+          // killFFmpeg is available in closure
+          // usage: killFFmpeg(pid)
+          // Maybe wait a bit then kill if not dead?
+          // The stdin 'q' should trigger exit handler.
+        }
+      }
+    }
   };
 };
 

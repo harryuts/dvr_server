@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Box,
   Typography,
@@ -9,6 +9,11 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import StopIcon from "@mui/icons-material/Stop";
@@ -33,6 +38,13 @@ const RecordingStatusTab = () => {
   const apiUrl = `${getApiBaseUrl()}/api/recording/status`;
   const [apiLoading, setApiLoading] = useState(false);
 
+  // Modal State
+  const [openModal, setOpenModal] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const fetchRecordingStatus = async () => {
       try {
@@ -46,16 +58,53 @@ const RecordingStatusTab = () => {
         setRecordingData(data);
       } catch (error) {
         console.error("Error fetching recording status:", error);
-        // Optionally display an error message to the user
       }
     };
 
-    fetchRecordingStatus(); // Initial fetch
-
-    const intervalId = setInterval(fetchRecordingStatus, 5000); // Fetch every 5 seconds
-
-    return () => clearInterval(intervalId); // Cleanup on unmount
+    fetchRecordingStatus();
+    const intervalId = setInterval(fetchRecordingStatus, 5000);
+    return () => clearInterval(intervalId);
   }, [apiUrl]);
+
+  const fetchLogs = async (channel: string) => {
+    try {
+      const response = await authenticatedFetch(`${getApiBaseUrl()}/api/channels/logs/${channel}`);
+      if (response.ok) {
+        const data = await response.json();
+        setLogs(data);
+      }
+    } catch (e) {
+      console.error("Error fetching logs", e);
+    }
+  };
+
+  const handleRowClick = (channel: string) => {
+    setSelectedChannel(channel);
+    setOpenModal(true);
+    setLogs([]); // Clear previous logs
+    fetchLogs(channel);
+
+    // Start polling logs
+    if (logIntervalRef.current) clearInterval(logIntervalRef.current);
+    logIntervalRef.current = setInterval(() => fetchLogs(channel), 2000);
+  };
+
+  const handleCloseModal = () => {
+    setOpenModal(false);
+    setSelectedChannel(null);
+    if (logIntervalRef.current) {
+      clearInterval(logIntervalRef.current);
+      logIntervalRef.current = null;
+    }
+  };
+
+  // Auto-scroll to bottom of logs
+  useEffect(() => {
+    if (openModal && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, openModal]);
+
 
   return (
     <Box sx={{ p: 3 }}>
@@ -77,7 +126,12 @@ const RecordingStatusTab = () => {
             </TableHead>
             <TableBody>
               {recordingData.map((status) => (
-                <TableRow key={status.channel}>
+                <TableRow
+                  key={status.channel}
+                  hover
+                  onClick={() => handleRowClick(status.channel)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell component="th" scope="row">
                     <VideocamIcon sx={{ mr: 1 }} /> {status.channel}
                   </TableCell>
@@ -111,8 +165,45 @@ const RecordingStatusTab = () => {
       ) : (
         <Typography>Not Recording</Typography>
       )}
+
+      {/* Log Viewer Modal */}
+      <Dialog
+        open={openModal}
+        onClose={handleCloseModal}
+        fullWidth
+        maxWidth="md"
+        aria-labelledby="log-dialog-title"
+      >
+        <DialogTitle id="log-dialog-title">
+          Live Capture Status - {selectedChannel}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{
+            bgcolor: '#000',
+            color: '#0f0',
+            p: 2,
+            borderRadius: 1,
+            fontFamily: 'monospace',
+            maxHeight: '60vh',
+            overflowY: 'auto'
+          }}>
+            {logs.length === 0 ? (
+              <Typography variant="body2" color="gray">No logs available...</Typography>
+            ) : (
+              logs.map((line, index) => (
+                <div key={index}>{line}</div>
+              ))
+            )}
+            <div ref={logsEndRef} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseModal} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
-
 export default RecordingStatusTab;

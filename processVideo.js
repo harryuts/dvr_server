@@ -4,10 +4,34 @@ import path from "path";
 import configManager from "./configManager.js";
 import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 //======================================================
 const baseVideoDirectory = configManager.baseVideoDirectory;
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
+const ERROR_LOG_FILE = path.join(__dirname, "video_processing_error.log");
 //======================================================
+
+/**
+ * Logs error details to both console and file
+ */
+function logError(message, details = {}) {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    message,
+    ...details
+  };
+
+  // Console log
+  console.error(`[ERROR] ${message}`, details);
+
+  // File log
+  const logLine = `\n${"=".repeat(80)}\n[${timestamp}] ${message}\n${JSON.stringify(details, null, 2)}\n`;
+  fs.appendFileSync(ERROR_LOG_FILE, logLine, "utf8");
+}
 
 /**
  * Trims a video file either from the start or the end based on the given mode.
@@ -229,6 +253,13 @@ export async function process_video(
 
   if (filteredFileList.length === 0) {
     console.error(`[process_video] No valid files left to process.`);
+    logError("No valid video files to process", {
+      startTime,
+      endTime,
+      originalFileList: fileList,
+      filesMetadata: files,
+      inProgressSegment
+    });
     return res.status(404).send("No video found for the specified time range.");
   }
 
@@ -262,6 +293,14 @@ export async function process_video(
   ffmpegCmd.on("close", (code) => {
     console.log(`[process_video] FFmpeg process exited with code ${code}`);
     if (code !== 0) {
+      logError("FFmpeg concatenation failed", {
+        exitCode: code,
+        startTime,
+        endTime,
+        fileList: filteredFileList,
+        outputPath: outputVideoPath,
+        concatListPath: filelistPath
+      });
       return res.status(500).send("Error processing the video.");
     }
     if (storeEvidence) {
@@ -367,12 +406,28 @@ export async function getVideo(req, res) {
     (err, rows) => {
       if (err) {
         console.error(`[getVideo] DB error: ${err.message}`);
+        logError("Database query failed in getVideo", {
+          error: err.message,
+          channelNumber,
+          requestedStartTime,
+          requestedEndTime,
+          query
+        });
         return res.status(404).send("Unable to query database.");
       }
       console.log(`[getVideo] DB found ${rows.length} segments in range.`);
       let files = rows;
       if (files.length === 0 && !inProgressSegment) {
         console.warn(`[getVideo] No video segments found in DB and no in-progress segment for Channel ${channelNumber}`);
+        logError("No video segments found", {
+          channelNumber,
+          requestedStartTime,
+          requestedEndTime,
+          startTimeStr: new Date(requestedStartTime).toISOString(),
+          endTimeStr: new Date(requestedEndTime).toISOString(),
+          dbRowCount: rows.length,
+          hasInProgressSegment: false
+        });
         return res
           .status(404)
           .send("No video found for the specified time range.");

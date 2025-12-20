@@ -90,22 +90,27 @@ const recordingScheduleStart = async (db, spawnedProcesses, stopTime) => {
     recordingControls[channel_configuration.channel] = recordingControl;
 
     // Schedule the function to stop
-    setTimeout(() => {
+    setTimeout(async () => {
       stopRecording = true;
       console.log(
         `Stop recording for channel ${channel_configuration.channel}`
       );
       console.log(`stop recording flag: ${stopRecording}`);
-      delete recordingControls[channel_configuration.channel];
-      // Check if process exists before trying to access stdin
-      if (recordingControl.process) {
+
+      const control = recordingControls[channel_configuration.channel];
+      if (control && control.stop) {
+        await control.stop();
+      } else if (control && control.process) {
+        // Fallback legacy stop
         try {
-          recordingControl.process.stdin.write("q");
-          recordingControl.process.stdin.end();
+          control.process.stdin.write("q");
+          control.process.stdin.end();
         } catch (e) {
           console.log("Error stopping recording: ", e);
         }
       }
+
+      delete recordingControls[channel_configuration.channel];
       console.log("cleaning up storage...");
       storageCleanup(db);
     }, stopTime);
@@ -244,26 +249,51 @@ export const startRecordingForChannel = async (db, spawnedProcesses, channelConf
 
     console.log(`[${channelConfig.channel}] Recording will stop in ${Math.floor(remainingTime / 60000)} minutes`);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       stopRecording = true;
       console.log(`Stop recording for channel ${channelConfig.channel}`);
-      delete recordingControls[channelConfig.channel];
 
-      // Check if process exists before trying to access stdin
-      if (recordingControl.process) {
+      const control = recordingControls[channelConfig.channel];
+      if (control && control.stop) {
+        await control.stop();
+      } else if (control && control.process) {
         try {
-          recordingControl.process.stdin.write("q");
-          recordingControl.process.stdin.end();
+          control.process.stdin.write("q");
+          control.process.stdin.end();
         } catch (e) {
           console.log(`Error stopping recording for ${channelConfig.channel}:`, e);
         }
       }
+      delete recordingControls[channelConfig.channel];
     }, remainingTime);
 
     return { success: true };
   } catch (error) {
     console.error(`[${channelConfig.channel}] Error starting recording:`, error);
     return { success: false, reason: 'error', error: error.message };
+  }
+};
+
+export const stopRecordingForChannel = async (channel) => {
+  console.log(`[${channel}] Stopping recording for channel...`);
+  const recordingControl = recordingControls[channel];
+  if (recordingControl) {
+    // Use the new stop method if available, fallback to old way just in case
+    if (recordingControl.stop) {
+      await recordingControl.stop();
+    } else if (recordingControl.process) {
+      try {
+        recordingControl.process.stdin.write("q");
+        recordingControl.process.stdin.end();
+      } catch (e) {
+        console.log(`Error stopping recording for ${channel}:`, e);
+      }
+    }
+    delete recordingControls[channel];
+    return true;
+  } else {
+    console.log(`[${channel}] No active recording found to stop.`);
+    return false;
   }
 };
 

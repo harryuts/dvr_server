@@ -118,6 +118,12 @@ router.delete("/config/:channel", authenticateSession, async (req, res) => {
       channelToDelete
     );
     if (success) {
+      // Stop the recording process for the deleted channel
+      const { stopRecordingForChannel } = await import(
+        "../scheduleRecording.js"
+      );
+      await stopRecordingForChannel(channelToDelete);
+
       res.json({
         message: `Channel "${channelToDelete}" deleted successfully`,
       });
@@ -128,6 +134,19 @@ router.delete("/config/:channel", authenticateSession, async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: "Failed to delete channel configuration" });
+  }
+});
+
+// Get logs for a specific channel
+router.get("/logs/:channel", authenticateSession, async (req, res) => {
+  const channel = req.params.channel;
+  try {
+    const { getChannelLogs } = await import("../recording.js");
+    const logs = getChannelLogs(channel);
+    res.json(logs);
+  } catch (error) {
+    console.error(`Error fetching logs for channel ${channel}:`, error);
+    res.status(500).json({ error: "Failed to fetch logs" });
   }
 });
 

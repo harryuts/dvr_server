@@ -70,10 +70,26 @@ const PlaybackPage: React.FC = () => {
 
   const handleStartTimeChange = (time: Date | null) => {
     setStartTime(time);
+    // Automatically set end time to 5 minutes after start time
+    if (time) {
+      const newEndTime = new Date(time.getTime() + 5 * 60 * 1000); // Add 5 minutes
+      setEndTime(newEndTime);
+    }
   };
 
   const handleEndTimeChange = (time: Date | null) => {
-    setEndTime(time);
+    if (time && startTime) {
+      // Enforce maximum 1 hour duration
+      const maxEndTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour from start
+      if (time > maxEndTime) {
+        setEndTime(maxEndTime);
+        alert("End time cannot be more than 1 hour after start time. Adjusted to maximum allowed.");
+      } else {
+        setEndTime(time);
+      }
+    } else {
+      setEndTime(time);
+    }
   };
 
   useEffect(() => {
@@ -117,7 +133,10 @@ const PlaybackPage: React.FC = () => {
       try {
         const response = await authenticatedFetch(apiUrl);
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorText = await response.text();
+          setApiError(errorText || "Failed to fetch video data.");
+          setVideoData({ error: "Failed to load video." });
+          return;
         }
         const data = await response.json();
         setVideoData(data);
@@ -152,7 +171,9 @@ const PlaybackPage: React.FC = () => {
     try {
       const response = await authenticatedFetch(apiUrl);
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        setApiError(errorText || "Failed to fetch video continuation.");
+        return;
       }
       const data = await response.json();
       // Calculate seek offset: position in new video where we should resume
@@ -212,6 +233,7 @@ const PlaybackPage: React.FC = () => {
                 slotProps={{ textField: { fullWidth: true } }}
                 ampm={false}
                 views={["hours", "minutes"]}
+                timeSteps={{ minutes: 1 }}
               />
             </Grid>
             {/* @ts-expect-error MUI Grid props are valid in this version */}
@@ -223,6 +245,7 @@ const PlaybackPage: React.FC = () => {
                 slotProps={{ textField: { fullWidth: true } }}
                 ampm={false}
                 views={["hours", "minutes"]}
+                timeSteps={{ minutes: 1 }}
               />
             </Grid>
             {/* @ts-expect-error MUI Grid props are valid in this version */}
