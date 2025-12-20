@@ -60,7 +60,7 @@ const LivePage: React.FC = () => {
 
         const fetchFrameRate = async () => {
             try {
-                const response = await authenticatedFetch(`${getApiBaseUrl()}/api/live-capture-config`);
+                const response = await authenticatedFetch(`${getApiBaseUrl()}/admin/live-capture-config`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }

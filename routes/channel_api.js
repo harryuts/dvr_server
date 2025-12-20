@@ -50,6 +50,33 @@ router.post("/config", authenticateSession, async (req, res) => {
       .json({ message: "Invalid new channel configuration data provided" });
   }
   try {
+    // Check for duplicate channel ID or name
+    const existingConfigs = await configManager.getRecordingConfigurations();
+
+    // Check for duplicate channel ID
+    const duplicateChannel = existingConfigs.find(
+      (config) => config.channel === newConfig.channel
+    );
+    if (duplicateChannel) {
+      return res.status(409).json({
+        message: `A channel with ID "${newConfig.channel}" already exists`,
+      });
+    }
+
+    // Check for duplicate name (case-insensitive)
+    if (newConfig.name) {
+      const duplicateName = existingConfigs.find(
+        (config) =>
+          config.name &&
+          config.name.toLowerCase() === newConfig.name.toLowerCase()
+      );
+      if (duplicateName) {
+        return res.status(409).json({
+          message: `A channel with name "${newConfig.name}" already exists`,
+        });
+      }
+    }
+
     await configManager.addRecordingConfiguration(newConfig);
     res
       .status(201)

@@ -27,7 +27,7 @@ const LiveCaptureTab: React.FC = () => {
             setError(null);
             try {
                 const response = await authenticatedFetch(
-                    `${getApiBaseUrl()}/api/live-capture-config`
+                    `${getApiBaseUrl()}/admin/live-capture-config`
                 );
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -56,7 +56,7 @@ const LiveCaptureTab: React.FC = () => {
 
         try {
             const response = await authenticatedFetch(
-                `${getApiBaseUrl()}/api/live-capture-config`,
+                `${getApiBaseUrl()}/admin/live-capture-config`,
                 "POST",
                 { liveCaptureFrameRate: frameRate }
             );

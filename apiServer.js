@@ -60,7 +60,7 @@ const startApiServer = (db) => {
   app.use(`/api/schedule`, scheduleRoutes);
   app.use(`/api`, mediaRoutes);
   app.use(`/pos`, posRoutes);
-  app.use(`/api`, adminRoutes);
+  app.use(`/admin`, adminRoutes);
 
   app.use(
     "/cctv",

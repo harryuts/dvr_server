@@ -183,6 +183,11 @@ const ChannelSettingsTab: React.FC = () => {
       );
       if (!response.ok) {
         const errorData = await response.json();
+        // For duplicate errors (409), show the specific error message
+        if (response.status === 409) {
+          setActionError(errorData.message || "Duplicate channel detected");
+          return; // Keep dialog open for user to correct
+        }
         throw new Error(
           errorData.message || `HTTP error! status: ${response.status}`
         );
@@ -319,6 +324,11 @@ const ChannelSettingsTab: React.FC = () => {
       <Dialog open={addDialogOpen} onClose={handleAddClose}>
         <DialogTitle>Add New Channel Configuration</DialogTitle>
         <DialogContent>
+          {actionError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {actionError}
+            </Alert>
+          )}
           <TextField
             autoFocus
             margin="dense"
