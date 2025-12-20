@@ -315,11 +315,11 @@ export async function getJpegLive(req, res) {
   // Generate a unique orderId internally
   const orderId = `jpeg_live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  // Debug logging
-  console.log("=== getJpegLive Debug Info ===");
-  console.log("Request query params:", req.query);
-  console.log("Parsed params:", { channelNumber, orderId });
-  console.log("channelNumber type:", typeof channelNumber);
+  // Debug logging (commented out to reduce log verbosity)
+  // console.log("=== getJpegLive Debug Info ===");
+  // console.log("Request query params:", req.query);
+  // console.log("Parsed params:", { channelNumber, orderId });
+  // console.log("channelNumber type:", typeof channelNumber);
 
   // Validate required parameters
   if (!channelNumber) {
@@ -344,11 +344,26 @@ export async function getJpegLive(req, res) {
     });
   }
 
-  console.log("✅ Found channel configuration:", channelConfig);
+  // console.log("✅ Found channel configuration:", channelConfig);
 
   const livePath = path.join(configManager.baseVideoDirectory, "capture", channelNumber, "live.jpg");
   if (fs.existsSync(livePath)) {
-    console.log("✅ Serving shared live feed:", livePath);
+    // Check if the file is fresh (modified within the last 5 seconds)
+    const stats = fs.statSync(livePath);
+    const fileAge = Date.now() - stats.mtimeMs;
+    const maxAgeMs = 5000; // 5 seconds
+
+    if (fileAge > maxAgeMs) {
+      console.log(`❌ Live image is stale (${Math.floor(fileAge / 1000)}s old), not serving`);
+      return res.status(503).json({
+        error: "Live feed unavailable",
+        message: "Camera feed may be experiencing issues. Live image is stale.",
+        imageAge: Math.floor(fileAge / 1000),
+        maxAge: Math.floor(maxAgeMs / 1000)
+      });
+    }
+
+    // console.log("✅ Serving shared live feed:", livePath);
     return res.sendFile(livePath);
   }
 

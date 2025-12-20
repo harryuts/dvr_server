@@ -35,7 +35,11 @@ const generateApiKey = () => {
   return crypto.randomBytes(32).toString("hex");
 };
 
-const startApiServer = (db) => {
+const startApiServer = (db, spawnedProcesses) => {
+  // Store in app.locals for access in routes
+  app.locals.db = db;
+  app.locals.spawnedProcesses = spawnedProcesses;
+
   // Basic HTTPS options
   const httpsOptions = {
     key: fs.readFileSync(

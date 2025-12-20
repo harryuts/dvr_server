@@ -17,7 +17,7 @@ console.log("db cleanup");
 deleteDbEntryIfFileMissing(db, channelDirectoryBase);
 // storageCleanup(db)
 
-startApiServer(db);
+startApiServer(db, spawnedProcesses);
 
 // Schedule the function for the next start time
 scheduleRecording(db, spawnedProcesses);

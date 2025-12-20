@@ -218,4 +218,53 @@ export const restartAllRecordings = async () => {
   console.log("All recordings stopped. They will restart automatically.");
 };
 
+// Function to start recording for a single channel (used when adding new channels)
+export const startRecordingForChannel = async (db, spawnedProcesses, channelConfig) => {
+  if (stopRecording) {
+    console.log(`[${channelConfig.channel}] Not in recording window, channel will start at next scheduled time`);
+    return { success: false, reason: 'outside_recording_window' };
+  }
+
+  console.log(`[${channelConfig.channel}] Starting recording for new channel...`);
+
+  try {
+    // Start recording
+    const recordingControl = startRecording(
+      db,
+      spawnedProcesses,
+      channelConfig.channel,
+      channelConfig.recordUrl
+    );
+    recordingControls[channelConfig.channel] = recordingControl;
+
+    // Set up stop timeout for this channel (matching the global stop time)
+    // Calculate remaining time from now until the scheduled stop
+    const { stopTime } = await configManager.getSchedule();
+    const remainingTime = msUntilTime(stopTime.hour, stopTime.minute);
+
+    console.log(`[${channelConfig.channel}] Recording will stop in ${Math.floor(remainingTime / 60000)} minutes`);
+
+    setTimeout(() => {
+      stopRecording = true;
+      console.log(`Stop recording for channel ${channelConfig.channel}`);
+      delete recordingControls[channelConfig.channel];
+
+      // Check if process exists before trying to access stdin
+      if (recordingControl.process) {
+        try {
+          recordingControl.process.stdin.write("q");
+          recordingControl.process.stdin.end();
+        } catch (e) {
+          console.log(`Error stopping recording for ${channelConfig.channel}:`, e);
+        }
+      }
+    }, remainingTime);
+
+    return { success: true };
+  } catch (error) {
+    console.error(`[${channelConfig.channel}] Error starting recording:`, error);
+    return { success: false, reason: 'error', error: error.message };
+  }
+};
+
 export { getStopRecording, recordingControls };

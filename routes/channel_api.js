@@ -78,6 +78,25 @@ router.post("/config", authenticateSession, async (req, res) => {
     }
 
     await configManager.addRecordingConfiguration(newConfig);
+
+    // Try to start recording if in recording window
+    const { startRecordingForChannel } = await import(
+      "../scheduleRecording.js"
+    );
+    const result = await startRecordingForChannel(
+      req.app.locals.db,
+      req.app.locals.spawnedProcesses,
+      newConfig
+    );
+
+    if (result.success) {
+      console.log(`Recording started for new channel: ${newConfig.channel}`);
+    } else {
+      console.log(
+        `Recording not started for ${newConfig.channel}: ${result.reason}`
+      );
+    }
+
     res
       .status(201)
       .json({ message: "New channel configuration added successfully" });

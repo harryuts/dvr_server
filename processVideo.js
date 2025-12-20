@@ -229,7 +229,7 @@ export async function process_video(
 
   if (filteredFileList.length === 0) {
     console.error(`[process_video] No valid files left to process.`);
-    return res.status(500).send("No valid video files to process.");
+    return res.status(404).send("No video found for the specified time range.");
   }
 
   const filelistPath = path.join(
@@ -302,12 +302,24 @@ export async function getVideo(req, res) {
   const { startTime, endTime, channelNumber, storeEvidence, orderId } =
     req.query;
 
-  const requestedStartTime = parseInt(startTime);
-  const requestedEndTime = parseInt(endTime);
+  let requestedStartTime = parseInt(startTime);
+  let requestedEndTime = parseInt(endTime);
+
+  // Adjust if start time is too close to current time (within 3 seconds)
+  const now = Date.now();
+  const bufferMs = 3000; // 3 seconds
+
+  if (requestedStartTime > now - bufferMs) {
+    const originalStartTime = requestedStartTime;
+    requestedStartTime = now - bufferMs;
+    console.log(`[getVideo] Adjusted start time from ${new Date(originalStartTime).toLocaleTimeString()} to ${new Date(requestedStartTime).toLocaleTimeString()} (too close to current time)`);
+  }
+
+
   const startTimeStr = new Date(requestedStartTime).toLocaleTimeString();
   const endTimeStr = new Date(requestedEndTime).toLocaleTimeString();
 
-  console.log(`[getVideo] Received request for Channel: ${channelNumber}, Start: ${startTimeStr} (${startTime}), End: ${endTimeStr} (${endTime})`);
+  console.log(`[getVideo] Received request for Channel: ${channelNumber}, Start: ${startTimeStr} (${requestedStartTime}), End: ${endTimeStr} (${requestedEndTime})`);
 
   // Check if requested time falls into current recording segment
   const recordingStatus = getRecordingStatus(channelNumber);
@@ -365,7 +377,7 @@ export async function getVideo(req, res) {
           .status(404)
           .send("No video found for the specified time range.");
       }
-      process_video(res, rows, startTime, endTime, storeEvidence, orderId, inProgressSegment);
+      process_video(res, rows, requestedStartTime, requestedEndTime, storeEvidence, orderId, inProgressSegment);
     }
   );
 }
