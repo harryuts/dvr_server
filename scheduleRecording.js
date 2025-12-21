@@ -81,11 +81,19 @@ const recordingScheduleStart = async (db, spawnedProcesses, stopTime) => {
     console.log(
       `Recording schedule start for channel: ${channel_configuration.channel}`
     );
+    // For Dahua channels, we record in "Live Only" mode (no video segments, just live.jpg)
+    const recordingOptions = {};
+    if (channel_configuration.type === 'dahua') {
+      console.log(`[${channel_configuration.channel}] Dahua channel detected. Starting in Live-Only mode.`);
+      recordingOptions.isDahua = true;
+    }
+
     const recordingControl = startRecording(
       db,
       spawnedProcesses,
       channel_configuration.channel,
-      channel_configuration.recordUrl
+      channel_configuration.recordUrl,
+      recordingOptions
     );
     recordingControls[channel_configuration.channel] = recordingControl;
 
@@ -232,13 +240,20 @@ export const startRecordingForChannel = async (db, spawnedProcesses, channelConf
 
   console.log(`[${channelConfig.channel}] Starting recording for new channel...`);
 
+  const recordingOptions = {};
+  if (channelConfig.type === 'dahua') {
+    console.log(`[${channelConfig.channel}] Dahua channel detected. Starting in Live-Only mode.`);
+    recordingOptions.isDahua = true;
+  }
+
   try {
     // Start recording
     const recordingControl = startRecording(
       db,
       spawnedProcesses,
       channelConfig.channel,
-      channelConfig.recordUrl
+      channelConfig.recordUrl,
+      recordingOptions
     );
     recordingControls[channelConfig.channel] = recordingControl;
 

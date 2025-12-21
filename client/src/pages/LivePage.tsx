@@ -5,7 +5,6 @@ import {
     Typography,
     Box,
     Card,
-    CardMedia,
     CardContent,
     Modal,
     Backdrop,
@@ -15,6 +14,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { getApiBaseUrl } from "../utils/apiConfig";
 import { authenticatedFetch } from "../utils/api";
 import { getAuthData } from "../utils/auth";
+import LiveFeedImage from "../components/LiveFeedImage";
 
 interface ChannelInfo {
     channel: string;
@@ -123,16 +123,15 @@ const LivePage: React.FC = () => {
                             }}
                             onClick={() => handleOpenLiveModal(channelInfo)}
                         >
-                            <CardMedia
-                                component="img"
-                                height="300"
-                                image={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${channelInfo.channel}&t=${refreshKey}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
+                            <LiveFeedImage
+                                src={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${channelInfo.channel}&t=${refreshKey}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
                                 alt={`Live feed - ${channelInfo.name}`}
                                 sx={{
-                                    objectFit: "cover",
+                                    height: "300px",
                                     backgroundColor: "#000",
                                     borderBottom: "2px solid",
                                     borderColor: "primary.main",
+                                    objectFit: "cover"
                                 }}
                             />
                             <CardContent sx={{ flexGrow: 1, p: 2, textAlign: "center" }}>
@@ -215,8 +214,7 @@ const LivePage: React.FC = () => {
                         </IconButton>
                     </Box>
                     {liveModalChannel && (
-                        <Box
-                            component="img"
+                        <LiveFeedImage
                             src={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${liveModalChannel.channel}&t=${refreshKey}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
                             alt={`Live feed - ${liveModalChannel.name}`}
                             sx={{

@@ -9,6 +9,8 @@ import {
   Select,
   MenuItem,
   SelectChangeEvent,
+  Tabs,
+  Tab,
   Box,
 } from "@mui/material";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
@@ -23,6 +25,7 @@ import { getAuthData } from "../utils/auth";
 
 interface VideoData {
   outputFile?: string;
+  streamUrl?: string;
   error?: string;
   from?: string;
   to?: string;
@@ -59,6 +62,8 @@ const PlaybackPage: React.FC = () => {
   const [channelData, setChannelData] = useState<ChannelInfo[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [seekOffset, setSeekOffset] = useState<number>(0);
+  const [currentTab, setCurrentTab] = useState(0); // 0 = Legacy, 1 = Streaming
+  const [requestStartTime, setRequestStartTime] = useState<number | null>(null);
 
   const handleChannelChange = (event: SelectChangeEvent) => {
     setSelectedChannel(event.target.value);
@@ -90,6 +95,10 @@ const PlaybackPage: React.FC = () => {
     } else {
       setEndTime(time);
     }
+  };
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
   };
 
   useEffect(() => {
@@ -128,7 +137,16 @@ const PlaybackPage: React.FC = () => {
       setVideoData({});
       setIsVideoOpen(true);
 
-      const apiUrl = `${getApiBaseUrl()}/api/getVideo?channelNumber=${selectedChannel}&startTime=${startTimeEpoch}&endTime=${endTimeEpoch}`;
+      const reqStart = Date.now();
+      setRequestStartTime(reqStart);
+
+      // Determine API endpoint based on tab
+      const endpoint = currentTab === 1 ? "/api/getLiveVideo" : "/api/getVideo"; // 1 is Streaming, 0 is Legacy (Standard)
+      // Actually, user asked for: "one tab is for video playback using the old legacy api approach and another one is using the new api approach"
+      // If currentTab === 0 (Legacy/Standard), I use getVideo
+      // If currentTab === 1 (New/Streaming), I use getLiveVideo
+
+      const apiUrl = `${getApiBaseUrl()}${endpoint}?channelNumber=${selectedChannel}&startTime=${startTimeEpoch}&endTime=${endTimeEpoch}`;
 
       try {
         const response = await authenticatedFetch(apiUrl);
@@ -166,7 +184,10 @@ const PlaybackPage: React.FC = () => {
     setLoading(true);
     setApiError(null);
 
-    const apiUrl = `${getApiBaseUrl()}/api/getVideo?channelNumber=${selectedChannel}&startTime=${lastEndTime}&endTime=${now}`;
+    // Continuation always uses the same method as original request?
+    // Or default to something? Let's use currentTab.
+    const endpoint = currentTab === 1 ? "/api/getLiveVideo" : "/api/getVideo";
+    const apiUrl = `${getApiBaseUrl()}${endpoint}?channelNumber=${selectedChannel}&startTime=${lastEndTime}&endTime=${now}`;
 
     try {
       const response = await authenticatedFetch(apiUrl);
@@ -200,6 +221,7 @@ const PlaybackPage: React.FC = () => {
     setIsVideoOpen(false);
     setVideoData({});
     setApiError(null);
+    setRequestStartTime(null);
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
@@ -211,6 +233,13 @@ const PlaybackPage: React.FC = () => {
       <Typography variant="h4" gutterBottom>
         Video Playback
       </Typography>
+
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+        <Tabs value={currentTab} onChange={handleTabChange} aria-label="playback mode tabs">
+          <Tab label="Legacy Download (Wait)" />
+          <Tab label="Direct Streaming (Instant)" />
+        </Tabs>
+      </Box>
 
       <Container maxWidth="sm">
         <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -291,6 +320,7 @@ const PlaybackPage: React.FC = () => {
         loading={loading}
         apiError={apiError}
         onVideoEnded={handleVideoEnded}
+        requestStartTime={requestStartTime}
       />
     </Container>
   );

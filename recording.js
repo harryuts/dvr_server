@@ -55,7 +55,8 @@ const startRecording = (
   db,
   spawnedProcesses,
   channel_number,
-  CAPTURE_SOURCE_URL
+  CAPTURE_SOURCE_URL,
+  options = {}
 ) => {
   let segmentFile;
   let isRecording = true;
@@ -66,8 +67,9 @@ const startRecording = (
   const KILL_TIMEOUT = 3000;
   let recordingStartTime;
   let respawnCounter = 0;
+  const isDahua = options.isDahua || false;
 
-  console.log(`Start recording for channel ${channel_number}`);
+  console.log(`Start recording for channel ${channel_number} (Dahua: ${isDahua})`);
   updateRecordingStatus(channel_number, {
     isRecording: true,
     startTime: new Date(),
@@ -202,6 +204,7 @@ const startRecording = (
   };
 
   const spawnFFmpegProcess = async () => {
+    // ... (date setup) ... 
     const { getStopRecording } = await import("./scheduleRecording.js");
     const currentDate = new Date();
     const year = format(currentDate, "yyyy");
@@ -232,41 +235,40 @@ const startRecording = (
     const liveJpegPath = path.join(channelDirectoryBase, "live.jpg");
     let currentSegmentStartTime = null;
 
-    ffmpegProcess = spawn("ffmpeg", [
-      "-rtsp_transport",
-      "tcp",
-      "-i",
-      CAPTURE_SOURCE_URL,
-      // Recording output
+    // Build FFmpeg Arguments
+    let args = [
+      "-rtsp_transport", "tcp",
+      "-i", CAPTURE_SOURCE_URL,
+    ];
+
+    if (!isDahua) {
+      // Standard Recording Args
+      args.push(
+        "-map", "0:v",
+        "-c:v", "copy",
+        "-an",
+        "-f", "segment",
+        "-segment_time", CAPTURE_SEGMENT_DURATION.toString(),
+        "-segment_atclocktime", "1",
+        "-strftime", "1",
+        "-reset_timestamps", "1",
+        "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
+        "-y", segmentFileTemplate
+      );
+    }
+
+    // Always add Live JPEG output
+    args.push(
       "-map", "0:v",
-      "-c:v",
-      "copy",
-      "-an",
-      "-f",
-      "segment",
-      "-segment_time",
-      CAPTURE_SEGMENT_DURATION.toString(),
-      "-segment_atclocktime",
-      "1",
-      "-strftime",
-      "1",
-      "-reset_timestamps",
-      "1",
-      "-segment_format_options",
-      "movflags=+frag_keyframe+empty_moov",
-      "-y",
-      segmentFileTemplate,
-      // Live JPEG output
-      "-map", "0:v",
-      "-f",
-      "image2",
-      "-update",
-      "1",
-      "-r",
-      liveCaptureFrameRate.toString(),
-      liveJpegPath,
-    ]);
+      "-f", "image2",
+      "-update", "1",
+      "-r", liveCaptureFrameRate.toString(),
+      "-y", liveJpegPath
+    );
+
+    ffmpegProcess = spawn("ffmpeg", args);
     spawnedProcesses.push(ffmpegProcess);
+
     console.log(
       `[${channel_number}] ffmpeg process spawned with PID: ${ffmpegProcess.pid}`
     );

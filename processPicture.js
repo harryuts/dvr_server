@@ -354,13 +354,7 @@ export async function getJpegLive(req, res) {
     const maxAgeMs = 5000; // 5 seconds
 
     if (fileAge > maxAgeMs) {
-      console.log(`❌ Live image is stale (${Math.floor(fileAge / 1000)}s old), not serving`);
-      return res.status(503).json({
-        error: "Live feed unavailable",
-        message: "Camera feed may be experiencing issues. Live image is stale.",
-        imageAge: Math.floor(fileAge / 1000),
-        maxAge: Math.floor(maxAgeMs / 1000)
-      });
+      res.set('X-Live-Image-Stale', 'true');
     }
 
     // console.log("✅ Serving shared live feed:", livePath);

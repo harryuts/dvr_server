@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from "react";
+import { getAuthData } from "../utils/auth";
 import {
   Box,
   Modal,
@@ -16,6 +17,7 @@ interface VideoPlayModalProps {
   channelName: string;
   videoData: {
     outputFile?: string;
+    streamUrl?: string;
     error?: string;
     from?: string;
     to?: string;
@@ -26,7 +28,9 @@ interface VideoPlayModalProps {
   apiError: string | null;
   onVideoEnded?: () => void;
   seekOffset?: number;
+  requestStartTime?: number | null;
 }
+
 
 const modalStyle = {
   position: "absolute",
@@ -50,8 +54,10 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
   apiError,
   onVideoEnded,
   seekOffset = 0,
+  requestStartTime,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [latency, setLatency] = React.useState<number | null>(null);
 
   useEffect(() => {
     if (!isOpen && videoRef.current) {
@@ -60,22 +66,35 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
     }
   }, [isOpen]);
 
+  // Reset latency when new video loads
+  useEffect(() => {
+    setLatency(null);
+  }, [videoData.outputFile, videoData.streamUrl]);
+
+
   // Auto-play when new video is loaded - start from seekOffset or beginning
   useEffect(() => {
-    if (videoData.outputFile && videoRef.current) {
-      console.log(`[VideoPlayModal] New video loaded: ${videoData.outputFile}, seeking to: ${seekOffset}s`);
+    if ((videoData.outputFile || videoData.streamUrl) && videoRef.current) {
+      console.log(`[VideoPlayModal] New video loaded: ${videoData.outputFile || videoData.streamUrl}, seeking to: ${seekOffset}s`);
       videoRef.current.currentTime = seekOffset;
       videoRef.current.load();
       videoRef.current.play().catch((err) => {
         console.warn("[VideoPlayModal] Autoplay blocked or failed:", err);
       });
     }
-  }, [videoData.outputFile, seekOffset]);
+  }, [videoData.outputFile, videoData.streamUrl, seekOffset]);
 
   const handleVideoEnded = () => {
     console.log(`[VideoPlayModal] Video ended event triggered. Prop onVideoEnded exists: ${!!onVideoEnded}`);
     if (onVideoEnded) {
       onVideoEnded();
+    }
+  };
+
+  const handlePlaying = () => {
+    if (requestStartTime && latency === null) {
+      const diff = (Date.now() - requestStartTime) / 1000;
+      setLatency(diff);
     }
   };
 
@@ -107,6 +126,11 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
             </span>
           )}
         </Typography>
+        {latency !== null && (
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            Time to start playback: {latency.toFixed(2)}s
+          </Typography>
+        )}
         {loading && (
           <Box
             display="flex"
@@ -122,26 +146,31 @@ const VideoPlayModal: React.FC<VideoPlayModalProps> = ({
             {apiError}
           </Typography>
         )}
-        {videoData.outputFile && (
+        {videoData.outputFile || videoData.streamUrl ? (
           <div
             className="video-container"
             style={{ width: "100%", height: "auto" }}
           >
             <video
-              key={videoData.outputFile}
+              key={videoData.outputFile || videoData.streamUrl}
               ref={videoRef}
               controls
               onEnded={handleVideoEnded}
+              onPlaying={handlePlaying}
               style={{ width: "100%", height: "auto", objectFit: "contain" }}
             >
               <source
-                src={`${getApiBaseUrl()}/cctv/${videoData.outputFile}`}
+                src={
+                  videoData.streamUrl
+                    ? `${getApiBaseUrl()}${videoData.streamUrl}&token=${getAuthData()?.token}`
+                    : `${getApiBaseUrl()}/cctv/${videoData.outputFile}`
+                }
                 type="video/mp4"
               />
               Your browser does not support the video tag.
             </video>
           </div>
-        )}
+        ) : null}
         {videoData.error && !apiError && (
           <Typography color="error" mb={2}>
             {videoData.error}

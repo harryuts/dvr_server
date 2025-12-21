@@ -30,7 +30,9 @@ import { authenticatedFetch } from "../utils/api";
 interface ChannelConfig {
   channel: string;
   recordUrl: string;
-  name?: string; // Added the 'name' property
+  name?: string;
+  type?: "standard" | "dahua";
+  playbackUrl?: string;
 }
 
 const ChannelSettingsTab: React.FC = () => {
@@ -41,13 +43,17 @@ const ChannelSettingsTab: React.FC = () => {
   const [editConfig, setEditConfig] = useState<ChannelConfig>({
     channel: "",
     recordUrl: "",
-    name: "", // Initialize 'name' in edit config
+    name: "",
+    type: "standard",
+    playbackUrl: "",
   });
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newConfig, setNewConfig] = useState<ChannelConfig>({
     channel: "",
     recordUrl: "",
-    name: "", // Initialize 'name' in new config
+    name: "",
+    type: "standard",
+    playbackUrl: "",
   });
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,6 +80,8 @@ const ChannelSettingsTab: React.FC = () => {
       const updatedData = data.map((config) => ({
         ...config,
         name: config.name !== undefined ? config.name : config.channel,
+        type: (config as any).type || "standard",
+        playbackUrl: (config as any).playbackUrl || "",
       }));
       setChannelConfigs(updatedData);
     } catch (err: unknown) {
@@ -91,7 +99,7 @@ const ChannelSettingsTab: React.FC = () => {
 
   const handleEditClose = () => {
     setEditDialogOpen(false);
-    setEditConfig({ channel: "", recordUrl: "", name: "" });
+    setEditConfig({ channel: "", recordUrl: "", name: "", type: "standard", playbackUrl: "" });
     setActionMessage(null);
     setActionError(null);
   };
@@ -162,7 +170,7 @@ const ChannelSettingsTab: React.FC = () => {
 
   const handleAddClose = () => {
     setAddDialogOpen(false);
-    setNewConfig({ channel: "", recordUrl: "", name: "" });
+    setNewConfig({ channel: "", recordUrl: "", name: "", type: "standard", playbackUrl: "" });
     setActionMessage(null);
     setActionError(null);
   };
@@ -231,8 +239,10 @@ const ChannelSettingsTab: React.FC = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Channel</TableCell>
-                <TableCell>Name</TableCell> {/* Added Name column */}
-                <TableCell>Record URL</TableCell>
+                <TableCell>Name</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Record URL (Live)</TableCell>
+                <TableCell>Playback URL</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -242,8 +252,10 @@ const ChannelSettingsTab: React.FC = () => {
                   <TableCell component="th" scope="row">
                     {config.channel}
                   </TableCell>
-                  <TableCell>{config.name}</TableCell> {/* Display the name */}
+                  <TableCell>{config.name}</TableCell>
+                  <TableCell>{config.type || "standard"}</TableCell>
                   <TableCell>{config.recordUrl}</TableCell>
+                  <TableCell>{config.playbackUrl || "-"}</TableCell>
                   <TableCell align="right">
                     <IconButton
                       aria-label="edit"
@@ -302,15 +314,43 @@ const ChannelSettingsTab: React.FC = () => {
             onChange={handleEditInputChange}
           />
           <TextField
+            select
+            margin="dense"
+            id="type"
+            name="type"
+            label="Type"
+            fullWidth
+            value={editConfig.type}
+            onChange={handleEditInputChange}
+            SelectProps={{
+              native: true,
+            }}
+          >
+            <option value="standard">Standard</option>
+            <option value="dahua">Dahua</option>
+          </TextField>
+          <TextField
             margin="dense"
             id="recordUrl"
             name="recordUrl"
-            label="Record URL"
+            label="Record URL (Live)"
             type="text"
             fullWidth
             value={editConfig.recordUrl}
             onChange={handleEditInputChange}
           />
+          {editConfig.type === 'dahua' && (
+            <TextField
+              margin="dense"
+              id="playbackUrl"
+              name="playbackUrl"
+              label="Playback URL"
+              type="text"
+              fullWidth
+              value={editConfig.playbackUrl}
+              onChange={handleEditInputChange}
+            />
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleEditClose}>Cancel</Button>
@@ -351,15 +391,43 @@ const ChannelSettingsTab: React.FC = () => {
             onChange={handleAddInputChange}
           />
           <TextField
+            select
+            margin="dense"
+            id="newType"
+            name="type"
+            label="Type"
+            fullWidth
+            value={newConfig.type}
+            onChange={handleAddInputChange}
+            SelectProps={{
+              native: true,
+            }}
+          >
+            <option value="standard">Standard</option>
+            <option value="dahua">Dahua</option>
+          </TextField>
+          <TextField
             margin="dense"
             id="newRecordUrl"
             name="recordUrl"
-            label="Record URL"
+            label="Record URL (Live)"
             type="text"
             fullWidth
             value={newConfig.recordUrl}
             onChange={handleAddInputChange}
           />
+          {newConfig.type === 'dahua' && (
+            <TextField
+              margin="dense"
+              id="newPlaybackUrl"
+              name="playbackUrl"
+              label="Playback URL"
+              type="text"
+              fullWidth
+              value={newConfig.playbackUrl}
+              onChange={handleAddInputChange}
+            />
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleAddClose}>Cancel</Button>
