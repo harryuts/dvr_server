@@ -216,6 +216,29 @@ const startRecording = (
       month,
       day
     );
+
+    if (isDahua) {
+      console.log(`[${channel_number}] Dahua channel detected. Skipping FFmpeg process spawn as recording is disabled and live capture is on-demand.`);
+      // Create a dummy process object to satisfy the contract
+      const dummyProcess = {
+        pid: -1,
+        stdout: { on: () => { } },
+        stderr: { on: () => { } },
+        on: () => { },
+        killed: false,
+        stdin: { write: () => { }, end: () => { } }
+      };
+      ffmpegProcess = dummyProcess;
+      updateRecordingStatus(channel_number, {
+        isRecording: false, // Not actually recording
+        startTime: new Date(),
+        pid: -1,
+        uptime: "N/A (Dahua)",
+        respawnCount: 0,
+      });
+      return;
+    }
+
     // Use strftime pattern for segment filenames (Shinobi-style)
     const segmentFileTemplate = path.join(
       channelDirectoryPath,
@@ -237,9 +260,14 @@ const startRecording = (
 
     // Build FFmpeg Arguments
     let args = [
+      "-y",
+      "-fflags", "+genpts+discardcorrupt",
       "-rtsp_transport", "tcp",
+      "-stimeout", "5000000", // 5 seconds timeout for socket
       "-i", CAPTURE_SOURCE_URL,
     ];
+
+    console.log(`[${channel_number}] Spawning FFmpeg with args:`, args.join(" "));
 
     if (!isDahua) {
       // Standard Recording Args
@@ -257,15 +285,7 @@ const startRecording = (
       );
     }
 
-    // Always add Live JPEG output
-    args.push(
-      "-map", "0:v",
-      "-f", "image2",
-      "-update", "1",
-      "-r", liveCaptureFrameRate.toString(),
-      "-y", liveJpegPath
-    );
-
+    // Live JPEG output removed to prevent high CPU usage (switched to On-Demand strategy)
     ffmpegProcess = spawn("ffmpeg", args);
     spawnedProcesses.push(ffmpegProcess);
 

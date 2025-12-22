@@ -346,21 +346,6 @@ export async function getJpegLive(req, res) {
 
   // console.log("✅ Found channel configuration:", channelConfig);
 
-  const livePath = path.join(configManager.baseVideoDirectory, "capture", channelNumber, "live.jpg");
-  if (fs.existsSync(livePath)) {
-    // Check if the file is fresh (modified within the last 5 seconds)
-    const stats = fs.statSync(livePath);
-    const fileAge = Date.now() - stats.mtimeMs;
-    const maxAgeMs = 5000; // 5 seconds
-
-    if (fileAge > maxAgeMs) {
-      res.set('X-Live-Image-Stale', 'true');
-    }
-
-    // console.log("✅ Serving shared live feed:", livePath);
-    return res.sendFile(livePath);
-  }
-
   // Process the live capture
   process_jpeg_live(res, channelConfig.recordUrl, channelNumber, orderId);
 }
@@ -380,6 +365,7 @@ async function process_jpeg_live(res, rtspUrl, channelNumber, orderId) {
 
   // FFmpeg arguments for live capture from RTSP
   const ffmpegArgs = [
+    "-hwaccel", "auto",        // Try to use hardware acceleration
     "-rtsp_transport", "tcp",  // Use TCP for more reliable connection
     "-i", rtspUrl,             // Input RTSP URL
     "-y",                      // Overwrite output file

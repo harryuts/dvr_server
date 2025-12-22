@@ -9,6 +9,10 @@ import {
     Modal,
     Backdrop,
     IconButton,
+    Select,
+    MenuItem,
+    FormControl,
+    InputLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { getApiBaseUrl } from "../utils/apiConfig";
@@ -29,19 +33,67 @@ interface ChannelInfo {
     };
 }
 
+// LiveChannelCard removed as it is no longer used in the single-view layout
+
+const LiveModalContent: React.FC<{
+    channelInfo: ChannelInfo;
+    frameRate: number;
+}> = ({ channelInfo, frameRate }) => {
+    const [refreshTimestamp, setRefreshTimestamp] = useState(Date.now());
+    const [isMounted, setIsMounted] = useState(true);
+
+    useEffect(() => {
+        setIsMounted(true);
+        return () => { setIsMounted(false); };
+    }, []);
+
+    const handleLoadComplete = () => {
+        if (!isMounted) return;
+        const delay = Math.floor(1000 / frameRate);
+        setTimeout(() => {
+            if (isMounted) {
+                setRefreshTimestamp(Date.now());
+            }
+        }, delay);
+    };
+
+    return (
+        <LiveFeedImage
+            src={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${channelInfo.channel}&t=${refreshTimestamp}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
+            alt={`Live feed - ${channelInfo.name}`}
+            onLoadComplete={handleLoadComplete}
+            sx={{
+                width: "100%",
+                height: "100%", // Fixed to ensure spinner is visible even when no image
+                mx: "auto", // Center the image horizontally
+                display: "block",
+                maxHeight: "calc(95vh - 100px)",
+                objectFit: "contain",
+                backgroundColor: "#000",
+                borderRadius: 1,
+            }}
+        />
+    );
+};
+
 const LivePage: React.FC = () => {
-    const [refreshKey, setRefreshKey] = useState(Date.now());
     const [channelData, setChannelData] = useState<ChannelInfo[]>([]);
-    const [liveModalChannel, setLiveModalChannel] = useState<ChannelInfo | null>(null);
     const [frameRate, setFrameRate] = useState<number>(1);
+    const [selectedChannelId, setSelectedChannelId] = useState<string>("");
 
-    const handleOpenLiveModal = (channelInfo: ChannelInfo) => {
-        setLiveModalChannel(channelInfo);
+    const handleChannelChange = (event: any) => {
+        setSelectedChannelId(event.target.value as string);
     };
 
-    const handleCloseLiveModal = () => {
-        setLiveModalChannel(null);
-    };
+    const selectedChannel = channelData.find(c => c.channel === selectedChannelId);
+
+    useEffect(() => {
+        if (channelData.length > 0 && !selectedChannelId) {
+            setSelectedChannelId(channelData[0].channel);
+        }
+    }, [channelData, selectedChannelId]);
+
+    // Handlers removed as modal is no longer used
 
     useEffect(() => {
         const apiUrl = `${getApiBaseUrl()}/api/channels/timeframe`;
@@ -77,19 +129,7 @@ const LivePage: React.FC = () => {
         fetchFrameRate();
     }, []);
 
-    useEffect(() => {
-        // Calculate refresh interval based on frame rate
-        // 1 FPS = 1000ms, 2 FPS = 500ms, 3 FPS = ~333ms
-        const refreshInterval = Math.floor(1000 / frameRate);
-
-        const interval = setInterval(() => {
-            setRefreshKey(Date.now());
-        }, refreshInterval);
-
-        return () => {
-            clearInterval(interval);
-        };
-    }, [frameRate]);
+    // Cleaned up duplicate logic
 
     return (
         <Container maxWidth="lg" sx={{ py: 3 }}>
@@ -97,62 +137,59 @@ const LivePage: React.FC = () => {
                 <Typography variant="h4" color="text.primary" sx={{ fontWeight: 600 }}>
                     Live View
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box component="span" sx={{ fontWeight: 500, color: 'text.primary' }}>Refresh Rate:</Box>
-                    {frameRate} FPS ({Math.floor(1000 / frameRate)}ms)
-                </Typography>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <FormControl size="small" sx={{ minWidth: 250 }}>
+                        <InputLabel id="channel-select-label">Select Channel</InputLabel>
+                        <Select
+                            labelId="channel-select-label"
+                            id="channel-select"
+                            value={selectedChannelId}
+                            label="Select Channel"
+                            onChange={handleChannelChange}
+                        >
+                            {channelData.map((channel) => (
+                                <MenuItem key={channel.channel} value={channel.channel}>
+                                    {channel.name} (Channel {channel.channel})
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+
+                    <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box component="span" sx={{ fontWeight: 500, color: 'text.primary' }}>Refresh Rate:</Box>
+                        {frameRate} FPS
+                    </Typography>
+                </Box>
             </Box>
 
-            <Grid container spacing={3} sx={{ justifyContent: "center" }}>
-                {channelData.map((channelInfo) => (
-                    /* @ts-expect-error MUI Grid props are valid in this version */
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={channelInfo.channel}>
-                        <Card
-                            sx={{
-                                height: "100%",
-                                display: "flex",
-                                flexDirection: "column",
-                                cursor: "pointer",
-                                transition: "all 0.3s ease-in-out",
-                                borderRadius: 2,
-                                overflow: "hidden",
-                                "&:hover": {
-                                    transform: "translateY(-4px)",
-                                    boxShadow: 6,
-                                },
-                            }}
-                            onClick={() => handleOpenLiveModal(channelInfo)}
-                        >
-                            <LiveFeedImage
-                                src={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${channelInfo.channel}&t=${refreshKey}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
-                                alt={`Live feed - ${channelInfo.name}`}
-                                sx={{
-                                    height: "300px",
-                                    backgroundColor: "#000",
-                                    borderBottom: "2px solid",
-                                    borderColor: "primary.main",
-                                    objectFit: "cover"
-                                }}
+            <Box sx={{ width: "90%", mx: "auto" }}>
+                {selectedChannel ? (
+                    <Card
+                        sx={{
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            boxShadow: 3,
+                        }}
+                    >
+                        <Box sx={{ height: '600px', bgcolor: 'black' }}>
+                            <LiveModalContent
+                                key={selectedChannel.channel}
+                                channelInfo={selectedChannel}
+                                frameRate={frameRate}
                             />
-                            <CardContent sx={{ flexGrow: 1, p: 2, textAlign: "center" }}>
-                                <Typography variant="h6" component="div" sx={{ fontWeight: 500 }}>
-                                    {channelInfo.name}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                                    Channel {channelInfo.channel}
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                ))}
-                {channelData.length === 0 && (
-                    /* @ts-expect-error MUI Grid props are valid in this version */
-                    <Grid item xs={12}>
+                        </Box>
+
+                    </Card>
+                ) : (
+                    channelData.length === 0 ? (
                         <Box
                             sx={{
                                 textAlign: "center",
                                 py: 8,
                                 px: 2,
+                                bgcolor: "background.paper",
+                                borderRadius: 2
                             }}
                         >
                             <Typography variant="h6" color="text.secondary" gutterBottom>
@@ -162,73 +199,13 @@ const LivePage: React.FC = () => {
                                 Please check your camera connections and configuration
                             </Typography>
                         </Box>
-                    </Grid>
+                    ) : (
+                        <Box sx={{ textAlign: "center", py: 4 }}>
+                            <Typography>Select a channel to view live feed</Typography>
+                        </Box>
+                    )
                 )}
-            </Grid>
-
-            {/* Live View Modal */}
-            <Modal
-                open={!!liveModalChannel}
-                onClose={handleCloseLiveModal}
-                closeAfterTransition
-                slots={{ backdrop: Backdrop }}
-                slotProps={{
-                    backdrop: {
-                        timeout: 500,
-                        sx: { backgroundColor: "rgba(0, 0, 0, 0.85)" },
-                    },
-                }}
-            >
-                <Box
-                    sx={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        width: "95%",
-                        maxWidth: "1400px",
-                        maxHeight: "95vh",
-                        bgcolor: "background.paper",
-                        boxShadow: 24,
-                        borderRadius: 2,
-                        p: 3,
-                        outline: "none",
-                        display: "flex",
-                        flexDirection: "column",
-                    }}
-                >
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                        <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                            {liveModalChannel?.name ?? "Live View"}
-                        </Typography>
-                        <IconButton
-                            onClick={handleCloseLiveModal}
-                            size="large"
-                            sx={{
-                                "&:hover": {
-                                    backgroundColor: "action.hover",
-                                },
-                            }}
-                        >
-                            <CloseIcon />
-                        </IconButton>
-                    </Box>
-                    {liveModalChannel && (
-                        <LiveFeedImage
-                            src={`${getApiBaseUrl()}/api/getJpegLive?channelNumber=${liveModalChannel.channel}&t=${refreshKey}${getAuthData()?.token ? `&token=${getAuthData()?.token}` : ""}`}
-                            alt={`Live feed - ${liveModalChannel.name}`}
-                            sx={{
-                                width: "100%",
-                                height: "auto",
-                                maxHeight: "calc(95vh - 100px)",
-                                objectFit: "contain",
-                                backgroundColor: "#000",
-                                borderRadius: 1,
-                            }}
-                        />
-                    )}
-                </Box>
-            </Modal>
+            </Box>
         </Container>
     );
 };

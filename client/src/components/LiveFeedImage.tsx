@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Box, Typography, Skeleton } from "@mui/material";
+import { Box, Typography, Skeleton, CircularProgress } from "@mui/material";
 
 interface LiveFeedImageProps {
     src: string;
@@ -7,9 +7,10 @@ interface LiveFeedImageProps {
     sx?: any;
     className?: string;
     onClick?: () => void;
+    onLoadComplete?: () => void;
 }
 
-const LiveFeedImage: React.FC<LiveFeedImageProps> = ({ src, alt, sx, className, onClick }) => {
+const LiveFeedImage: React.FC<LiveFeedImageProps> = ({ src, alt, sx, className, onClick, onLoadComplete }) => {
     const [imageSrc, setImageSrc] = useState<string | null>(null);
     const [isStale, setIsStale] = useState<boolean>(false);
     const [loading, setLoading] = useState<boolean>(true);
@@ -53,6 +54,9 @@ const LiveFeedImage: React.FC<LiveFeedImageProps> = ({ src, alt, sx, className, 
                 }
             } finally {
                 setLoading(false);
+                if (onLoadComplete && !controller.signal.aborted) {
+                    onLoadComplete();
+                }
             }
         };
 
@@ -68,6 +72,9 @@ const LiveFeedImage: React.FC<LiveFeedImageProps> = ({ src, alt, sx, className, 
         };
     }, [src]);
 
+
+    console.log(`LiveFeedImage Render: loading=${loading}, hasImage=${!!imageSrc}, isStale=${isStale}`);
+
     return (
         <Box
             sx={{
@@ -80,8 +87,26 @@ const LiveFeedImage: React.FC<LiveFeedImageProps> = ({ src, alt, sx, className, 
             className={className}
             onClick={onClick}
         >
-            {loading && !imageSrc && (
-                <Skeleton variant="rectangular" width="100%" height="100%" sx={{ position: 'absolute', top: 0, left: 0 }} />
+            {(!imageSrc && !error) && (
+                <Box sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: 'rgba(20, 20, 20, 1)',
+                    zIndex: 10,
+                    color: 'white'
+                }}>
+                    <CircularProgress sx={{ color: '#00ff00' }} size={60} thickness={4} />
+                    <Typography variant="h6" sx={{ mt: 2, color: '#fff', fontWeight: 'bold' }}>
+                        Loading Stream...
+                    </Typography>
+                </Box>
             )}
 
             {imageSrc && !error && (

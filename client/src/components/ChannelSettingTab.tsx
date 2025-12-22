@@ -359,11 +359,24 @@ const ChannelSettingsTab: React.FC = () => {
             />
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleEditClose}>Cancel</Button>
-          <Button onClick={handleUpdateConfig} color="primary">
-            Update
+        <DialogActions sx={{ justifyContent: "space-between", px: 3, pb: 2 }}>
+          <Button
+            onClick={() => {
+              handleDeleteConfig(editConfig.channel);
+              handleEditClose();
+            }}
+            color="error"
+            variant="outlined"
+            startIcon={<DeleteIcon />}
+          >
+            Delete Channel
           </Button>
+          <Box>
+            <Button onClick={handleEditClose} sx={{ mr: 1 }}>Cancel</Button>
+            <Button onClick={handleUpdateConfig} color="primary" variant="contained">
+              Update
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
