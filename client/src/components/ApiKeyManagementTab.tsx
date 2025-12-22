@@ -286,7 +286,7 @@ const ApiKeyManagementTab: React.FC = () => {
 
   return (
     <Container maxWidth="md">
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" color="text.primary" gutterBottom>
         API Key Management
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}

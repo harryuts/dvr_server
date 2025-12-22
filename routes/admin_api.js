@@ -3,6 +3,8 @@ import { authenticateSession } from "../authentication.js";
 import { db } from "../dbFunctions.js";
 import crypto from "crypto";
 import configManager from "../configManager.js";
+import os from "os";
+import si from "systeminformation";
 
 const router = express.Router();
 
@@ -174,6 +176,99 @@ router.post("/live-capture-config", authenticateSession, async (req, res) => {
   } catch (error) {
     console.error("Error updating live capture config:", error);
     res.status(500).json({ message: "Failed to update live capture configuration", error: error.message });
+  }
+});
+
+// Helper function to get CPU info
+const getCpuInfo = () => {
+  const cpus = os.cpus();
+  let user = 0;
+  let nice = 0;
+  let sys = 0;
+  let idle = 0;
+  let irq = 0;
+
+  for (const cpu of cpus) {
+    user += cpu.times.user;
+    nice += cpu.times.nice;
+    sys += cpu.times.sys;
+    idle += cpu.times.idle;
+    irq += cpu.times.irq;
+  }
+
+  const total = user + nice + sys + idle + irq;
+
+  return {
+    idle,
+    total,
+  };
+};
+
+// Get system stats (CPU & RAM)
+router.get("/system-stats", authenticateSession, async (req, res) => {
+  try {
+    const startMeasure = getCpuInfo();
+
+    // Wait 100ms to calculate CPU usage
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const endMeasure = getCpuInfo();
+
+    const idleDifference = endMeasure.idle - startMeasure.idle;
+    const totalDifference = endMeasure.total - startMeasure.total;
+
+    // Calculate CPU percentage
+    const cpuPercentage = totalDifference === 0 ? 0 : 100 - (100 * idleDifference) / totalDifference;
+
+    // Calculate RAM usage
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const ramPercentage = (usedMem / totalMem) * 100;
+
+    // Get CPU temperature
+    const cpuTempData = await si.cpuTemperature();
+    const cpuTemp = cpuTempData.main;
+
+    res.json({
+      cpu: Math.round(cpuPercentage),
+      cpuCount: os.cpus().length,
+      cpuTemp: Math.round(cpuTemp),
+      ram: Math.round(ramPercentage),
+      totalMem: totalMem,
+      usedMem: usedMem
+    });
+  } catch (error) {
+    console.error("Error fetching system stats:", error);
+    res.status(500).json({ message: "Failed to fetch system stats", error: error.message });
+  }
+});
+
+// Get Storage Config
+router.get("/storage-config", authenticateSession, async (req, res) => {
+  try {
+    const percent = await configManager.getMaxStoragePercent();
+    res.json({ maxStoragePercent: percent });
+  } catch (error) {
+    console.error("Error fetching storage config:", error);
+    res.status(500).json({ message: "Failed to fetch storage config", error: error.message });
+  }
+});
+
+// Update Storage Config
+router.post("/storage-config", authenticateSession, async (req, res) => {
+  const { maxStoragePercent } = req.body;
+
+  if (!maxStoragePercent || maxStoragePercent < 1 || maxStoragePercent > 100) {
+    return res.status(400).json({ message: "Invalid percentage value (1-100)" });
+  }
+
+  try {
+    await configManager.updateMaxStoragePercent(maxStoragePercent);
+    res.json({ message: "Storage configuration updated successfully" });
+  } catch (error) {
+    console.error("Error updating storage config:", error);
+    res.status(500).json({ message: "Failed to update storage config", error: error.message });
   }
 });
 

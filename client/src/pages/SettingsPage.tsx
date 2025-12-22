@@ -5,6 +5,7 @@ import ChannelSettingsTab from "../components/ChannelSettingTab";
 import ChangePinTab from "../components/ChangePinTab";
 import ApiKeyManagementTab from "../components/ApiKeyManagementTab";
 import LiveCaptureTab from "../components/LiveCaptureTab";
+import StorageTab from "../components/StorageTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -44,7 +45,7 @@ const SettingsPage: React.FC = () => {
 
   return (
     <Container>
-      <Typography variant="h4" sx={{ textAlign: "center" }} gutterBottom>
+      <Typography variant="h4" color="text.primary" sx={{ textAlign: "center" }} gutterBottom>
         Settings
       </Typography>
       <Box sx={{ width: "100%" }}>
@@ -60,6 +61,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="Security" {...a11yProps(2)} />
             <Tab label="API Key" {...a11yProps(3)} />
             <Tab label="Live Capture" {...a11yProps(4)} />
+            <Tab label="Storage" {...a11yProps(5)} />
           </Tabs>
         </Box>
         <TabPanel value={value} index={0}>
@@ -76,6 +78,9 @@ const SettingsPage: React.FC = () => {
         </TabPanel>
         <TabPanel value={value} index={4}>
           <LiveCaptureTab />
+        </TabPanel>
+        <TabPanel value={value} index={5}>
+          <StorageTab />
         </TabPanel>
       </Box>
     </Container>

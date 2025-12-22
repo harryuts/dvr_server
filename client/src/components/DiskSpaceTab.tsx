@@ -33,7 +33,7 @@ const DiskSpaceTab: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" color="text.primary" gutterBottom>
         Disk Space Usage
       </Typography>
       <Grid container justifyContent="center" alignItems="center" spacing={2}>

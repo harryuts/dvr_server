@@ -94,11 +94,11 @@ const LivePage: React.FC = () => {
     return (
         <Container maxWidth="lg" sx={{ py: 3 }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                <Typography variant="h4" color="text.primary" sx={{ fontWeight: 600 }}>
                     Live View
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box component="span" sx={{ fontWeight: 500 }}>Refresh Rate:</Box>
+                    <Box component="span" sx={{ fontWeight: 500, color: 'text.primary' }}>Refresh Rate:</Box>
                     {frameRate} FPS ({Math.floor(1000 / frameRate)}ms)
                 </Typography>
             </Box>

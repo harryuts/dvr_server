@@ -4,7 +4,6 @@ import path from "path";
 import configManager from "./configManager.js";
 
 const baseVideoDirectory = configManager.baseVideoDirectory;
-const MAX_STORAGE_PERCENTAGE = 80;
 
 export const getDiskUsagePercentage = async (directory) => {
   try {
@@ -237,8 +236,10 @@ export const deleteOldestFileAndDbEntry = async (
 
 export const storageCleanup = async (db) => {
   console.log("storage cleanup");
+  const maxStoragePercent = await configManager.getMaxStoragePercent();
+
   while (
-    (await getDiskUsagePercentage(baseVideoDirectory)) > MAX_STORAGE_PERCENTAGE
+    (await getDiskUsagePercentage(baseVideoDirectory)) > maxStoragePercent
   ) {
     const oldestFileList = await findOldestFileDirectoryFullPaths(
       baseVideoDirectory + "/capture"

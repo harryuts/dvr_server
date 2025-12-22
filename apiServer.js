@@ -74,6 +74,10 @@ const startApiServer = (db, spawnedProcesses) => {
     "/cctv_evidence",
     express.static(path.join(baseVideoDirectory, "evidence"))
   );
+  // Return 404 if file not found in /cctv_evidence, preventing fall-through to SPA
+  app.use("/cctv_evidence", (req, res) => {
+    res.status(404).send("File not found");
+  });
 
   app.get("/api/recording/status", authenticateSession, async (req, res) => {
     try {

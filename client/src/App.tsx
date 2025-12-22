@@ -1,8 +1,8 @@
 import React, { JSX, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Box, ThemeProvider } from "@mui/material";
+import { Box, ThemeProvider, CssBaseline } from "@mui/material";
 import { theme } from "./theme";
-import BottomNavigationBar from "./components/BottomNavigationBar";
+import SideNavigationBar from "./components/SideNavigationBar";
 import StatusPage from "./pages/StatusPage";
 import LoginPage from "./pages/LoginPage";
 import PlaybackPage from "./pages/PlaybackPage";
@@ -58,25 +58,26 @@ function App() {
 
   return (
     <ThemeProvider theme={theme}>
+      <CssBaseline />
       <Box
         sx={{
           display: "flex",
-          justifyContent: "center",
           width: "100vw",
-          minHeight: "100vh",
+          height: "100vh", // Use height instead of minHeight to fix viewport
           bgcolor: 'background.default',
+          overflow: 'hidden', // Prevent body scroll
         }}
       >
         <BrowserRouter>
+          {isLoggedIn && <SideNavigationBar />}
           <Box
             sx={{
-              width: '100%',
-              maxWidth: '1200px',
+              flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              minHeight: '100vh',
+              height: '100%',
+              overflow: 'hidden', // Contain scrolling to this area
               position: 'relative',
-              pb: isLoggedIn ? '56px' : 0, // Add padding for bottom nav
             }}
           >
             <Box sx={{ flex: 1, overflow: 'auto' }}>
@@ -127,7 +128,6 @@ function App() {
                 />
               </Routes>
             </Box>
-            {isLoggedIn && <BottomNavigationBar />}
           </Box>
         </BrowserRouter>
       </Box>

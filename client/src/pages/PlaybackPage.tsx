@@ -22,6 +22,7 @@ import { getApiBaseUrl } from "../utils/apiConfig";
 import VideoPlayModal from "../components/VideoPlayModal";
 import { authenticatedFetch } from "../utils/api";
 import { getAuthData } from "../utils/auth";
+import ScrollingPlaybackTab from "../components/ScrollingPlaybackTab";
 
 interface VideoData {
   outputFile?: string;
@@ -62,7 +63,7 @@ const PlaybackPage: React.FC = () => {
   const [channelData, setChannelData] = useState<ChannelInfo[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [seekOffset, setSeekOffset] = useState<number>(0);
-  const [currentTab, setCurrentTab] = useState(0); // 0 = Legacy, 1 = Streaming
+  const [currentTab, setCurrentTab] = useState(0); // 0 = Legacy, 1 = Streaming, 2 = Scrolling
   const [requestStartTime, setRequestStartTime] = useState<number | null>(null);
 
   const handleChannelChange = (event: SelectChangeEvent) => {
@@ -229,8 +230,8 @@ const PlaybackPage: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="md">
-      <Typography variant="h4" gutterBottom>
+    <Container maxWidth={false}>
+      <Typography variant="h4" color="text.primary" gutterBottom>
         Video Playback
       </Typography>
 
@@ -238,79 +239,84 @@ const PlaybackPage: React.FC = () => {
         <Tabs value={currentTab} onChange={handleTabChange} aria-label="playback mode tabs">
           <Tab label="Legacy Download (Wait)" />
           <Tab label="Direct Streaming (Instant)" />
+          <Tab label="Scrolling (Timeline)" />
         </Tabs>
       </Box>
 
-      <Container maxWidth="sm">
-        <LocalizationProvider dateAdapter={AdapterDateFns}>
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            {/* @ts-expect-error MUI Grid props are valid in this version */}
-            <Grid item xs={12}>
-              <DatePicker
-                label="Select Date"
-                value={selectedDate}
-                onChange={handleDateChange}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-            </Grid>
-            {/* @ts-expect-error MUI Grid props are valid in this version */}
-            <Grid item xs={6}>
-              <TimePicker
-                label="Start Time"
-                value={startTime}
-                onChange={handleStartTimeChange}
-                slotProps={{ textField: { fullWidth: true } }}
-                ampm={false}
-                views={["hours", "minutes"]}
-                timeSteps={{ minutes: 1 }}
-              />
-            </Grid>
-            {/* @ts-expect-error MUI Grid props are valid in this version */}
-            <Grid item xs={6}>
-              <TimePicker
-                label="End Time"
-                value={endTime}
-                onChange={handleEndTimeChange}
-                slotProps={{ textField: { fullWidth: true } }}
-                ampm={false}
-                views={["hours", "minutes"]}
-                timeSteps={{ minutes: 1 }}
-              />
-            </Grid>
-            {/* @ts-expect-error MUI Grid props are valid in this version */}
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel id="channel-select-label">Channel</InputLabel>
-                <Select
-                  labelId="channel-select-label"
-                  id="channel-select"
-                  value={selectedChannel}
-                  label="Channel"
-                  onChange={handleChannelChange}
+      {currentTab === 2 ? (
+        <ScrollingPlaybackTab channelData={channelData} />
+      ) : (
+        <Container maxWidth="sm">
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              {/* @ts-ignore */}
+              <Grid item xs={12}>
+                <DatePicker
+                  label="Select Date"
+                  value={selectedDate}
+                  onChange={handleDateChange}
+                  slotProps={{ textField: { fullWidth: true } }}
+                />
+              </Grid>
+              {/* @ts-ignore */}
+              <Grid item xs={6}>
+                <TimePicker
+                  label="Start Time"
+                  value={startTime}
+                  onChange={handleStartTimeChange}
+                  slotProps={{ textField: { fullWidth: true } }}
+                  ampm={false}
+                  views={["hours", "minutes"]}
+                  timeSteps={{ minutes: 1 }}
+                />
+              </Grid>
+              {/* @ts-ignore */}
+              <Grid item xs={6}>
+                <TimePicker
+                  label="End Time"
+                  value={endTime}
+                  onChange={handleEndTimeChange}
+                  slotProps={{ textField: { fullWidth: true } }}
+                  ampm={false}
+                  views={["hours", "minutes"]}
+                  timeSteps={{ minutes: 1 }}
+                />
+              </Grid>
+              {/* @ts-ignore */}
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel id="channel-select-label">Channel</InputLabel>
+                  <Select
+                    labelId="channel-select-label"
+                    id="channel-select"
+                    value={selectedChannel}
+                    label="Channel"
+                    onChange={handleChannelChange}
+                  >
+                    {channelData.map((channelInfo) => (
+                      <MenuItem key={channelInfo.channel} value={channelInfo.channel}>
+                        {`${channelInfo.name} (${channelInfo.channel})`}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              {/* @ts-ignore */}
+              <Grid item xs={12}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleSubmit}
+                  fullWidth
+                  disabled={loading}
                 >
-                  {channelData.map((channelInfo) => (
-                    <MenuItem key={channelInfo.channel} value={channelInfo.channel}>
-                      {`${channelInfo.name} (${channelInfo.channel})`}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                  Submit
+                </Button>
+              </Grid>
             </Grid>
-            {/* @ts-expect-error MUI Grid props are valid in this version */}
-            <Grid item xs={12}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleSubmit}
-                fullWidth
-                disabled={loading}
-              >
-                Submit
-              </Button>
-            </Grid>
-          </Grid>
-        </LocalizationProvider>
-      </Container>
+          </LocalizationProvider>
+        </Container>
+      )}
 
       <VideoPlayModal
         isOpen={isVideoOpen}

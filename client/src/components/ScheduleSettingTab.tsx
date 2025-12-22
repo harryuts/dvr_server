@@ -163,7 +163,7 @@ const ScheduleSettingsTab: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" color="text.primary" gutterBottom>
         Recording Schedule
       </Typography>
       {loading ? (
@@ -196,7 +196,7 @@ const ScheduleSettingsTab: React.FC = () => {
           </Box>
           <LocalizationProvider dateAdapter={AdapterDateFns}>
             <Grid container spacing={2} alignItems="center">
-              <Grid sx = {{sm: 6}}>
+              <Grid sx={{ sm: 6 }}>
                 <TimePicker
                   label="Start Time"
                   value={startTime}
@@ -206,7 +206,7 @@ const ScheduleSettingsTab: React.FC = () => {
                   views={["hours", "minutes"]}
                 />
               </Grid>
-              <Grid sx = {{sm: 6}}>
+              <Grid sx={{ sm: 6 }}>
                 <TimePicker
                   label="Stop Time"
                   value={stopTime}
@@ -216,7 +216,7 @@ const ScheduleSettingsTab: React.FC = () => {
                   views={["hours", "minutes"]}
                 />
               </Grid>
-              <Grid sx = {{sm: 6}}>
+              <Grid sx={{ sm: 6 }}>
                 <Button
                   variant="contained"
                   color="primary"

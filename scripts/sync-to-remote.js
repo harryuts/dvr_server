@@ -19,7 +19,8 @@ const excludes = [
     '.git/',
     '.env',
     'certs/',
-    'test_media/'
+    'test_media/',
+    'config.json'
 ];
 
 const excludeArgs = excludes.map(e => `--exclude='${e}'`).join(' ');

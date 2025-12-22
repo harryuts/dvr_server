@@ -47,6 +47,7 @@ const ChannelSettingsTab: React.FC = () => {
     type: "standard",
     playbackUrl: "",
   });
+  const [originalChannelId, setOriginalChannelId] = useState<string | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newConfig, setNewConfig] = useState<ChannelConfig>({
     channel: "",
@@ -94,12 +95,14 @@ const ChannelSettingsTab: React.FC = () => {
 
   const handleEditOpen = (config: ChannelConfig) => {
     setEditConfig({ ...config });
+    setOriginalChannelId(config.channel);
     setEditDialogOpen(true);
   };
 
   const handleEditClose = () => {
     setEditDialogOpen(false);
     setEditConfig({ channel: "", recordUrl: "", name: "", type: "standard", playbackUrl: "" });
+    setOriginalChannelId(null);
     setActionMessage(null);
     setActionError(null);
   };
@@ -116,7 +119,7 @@ const ChannelSettingsTab: React.FC = () => {
     setActionError(null);
     try {
       const response = await authenticatedFetch(
-        `${getApiBaseUrl()}/api/channels/config`,
+        `${getApiBaseUrl()}/api/channels/config/${encodeURIComponent(originalChannelId || '')}`,
         "PUT",
         editConfig
       );
@@ -211,7 +214,7 @@ const ChannelSettingsTab: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" color="text.primary" gutterBottom>
         Channel Configuration
       </Typography>
 
@@ -248,7 +251,12 @@ const ChannelSettingsTab: React.FC = () => {
             </TableHead>
             <TableBody>
               {channelConfigs.map((config) => (
-                <TableRow key={config.channel}>
+                <TableRow
+                  key={config.channel}
+                  hover
+                  onClick={() => handleEditOpen(config)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell component="th" scope="row">
                     {config.channel}
                   </TableCell>
@@ -301,7 +309,6 @@ const ChannelSettingsTab: React.FC = () => {
             fullWidth
             value={editConfig.channel}
             onChange={handleEditInputChange}
-            disabled // Prevent editing the channel name for simplicity
           />
           <TextField
             margin="dense"

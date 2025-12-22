@@ -108,7 +108,7 @@ const RecordingStatusTab = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" color="text.primary" gutterBottom>
         Recording Status
       </Typography>
       {recordingData.length > 0 ? (

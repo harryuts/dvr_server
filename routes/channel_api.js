@@ -18,7 +18,8 @@ router.get("/config", authenticateSession, async (req, res) => {
 });
 
 // PUT endpoint to update an existing channel configuration
-router.put("/config", authenticateSession, async (req, res) => {
+router.put("/config/:originalChannelId", authenticateSession, async (req, res) => {
+  const originalChannelId = req.params.originalChannelId;
   const updatedConfig = req.body;
   if (!updatedConfig || !updatedConfig.channel || !updatedConfig.recordUrl) {
     return res
@@ -27,6 +28,7 @@ router.put("/config", authenticateSession, async (req, res) => {
   }
   try {
     const success = await configManager.updateRecordingConfiguration(
+      originalChannelId,
       updatedConfig
     );
     if (success) {
@@ -34,7 +36,7 @@ router.put("/config", authenticateSession, async (req, res) => {
     } else {
       res
         .status(404)
-        .json({ message: `Channel "${updatedConfig.channel}" not found` });
+        .json({ message: `Channel "${originalChannelId}" not found` });
     }
   } catch (error) {
     res.status(500).json({ message: "Failed to update channel configuration" });

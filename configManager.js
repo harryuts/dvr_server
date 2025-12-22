@@ -10,6 +10,7 @@ const configFilePath = path.join(__dirname, "config.json"); // Path to your conf
 const segmentDuration = 900; // 15 minutes in seconds
 const baseVideoDirectory = "/mnt/m2nvme";
 let liveCaptureFrameRate = 1; // Default: 1 frame per second
+let maxStoragePercent = 80; // Default: 80%
 
 async function readConfig() {
   try {
@@ -54,8 +55,16 @@ async function initializeConfig() {
     console.log("Config file initialized with default live capture frame rate (1 FPS).");
   }
 
+  // Initialize max storage percent if not set
+  if (!config.maxStoragePercent) {
+    config.maxStoragePercent = 80;
+    await writeConfig(config);
+    console.log("Config file initialized with default max storage percent (80%).");
+  }
+
   // Load live capture frame rate into memory
   liveCaptureFrameRate = config.liveCaptureFrameRate || 1;
+  maxStoragePercent = config.maxStoragePercent || 80;
 }
 
 initializeConfig();
@@ -94,10 +103,10 @@ export async function getRecordingConfigurations() {
   return config.recordingConfiguration;
 }
 
-export async function updateRecordingConfiguration(updatedChannelConfig) {
+export async function updateRecordingConfiguration(originalChannelId, updatedChannelConfig) {
   const config = await readConfig();
   const index = config.recordingConfiguration.findIndex(
-    (config) => config.channel === updatedChannelConfig.channel
+    (config) => config.channel === originalChannelId
   );
 
   if (index !== -1) {
@@ -138,11 +147,25 @@ export async function updateLiveCaptureFrameRate(frameRate) {
   return true;
 }
 
-export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate };
+export async function getMaxStoragePercent() {
+  const config = await readConfig();
+  return config.maxStoragePercent || 80;
+}
+
+export async function updateMaxStoragePercent(percent) {
+  const config = await readConfig();
+  config.maxStoragePercent = parseInt(percent, 10);
+  await writeConfig(config);
+  maxStoragePercent = config.maxStoragePercent;
+  return true;
+}
+
+export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent };
 export default {
   segmentDuration,
   baseVideoDirectory,
   liveCaptureFrameRate,
+  maxStoragePercent,
   getStoredPinHash,
   updateStoredPinHash,
   getSchedule,
@@ -153,4 +176,6 @@ export default {
   deleteRecordingConfiguration,
   getLiveCaptureFrameRate,
   updateLiveCaptureFrameRate,
+  getMaxStoragePercent,
+  updateMaxStoragePercent,
 };

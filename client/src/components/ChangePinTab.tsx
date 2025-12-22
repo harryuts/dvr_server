@@ -91,7 +91,7 @@ const ChangePinTab: React.FC = () => {
 
   return (
     <Container maxWidth="xs">
-      <Typography variant="h6" component="h6" gutterBottom>
+      <Typography variant="h6" component="h6" color="text.primary" gutterBottom>
         Change PIN
       </Typography>
       {changePinError && <Alert severity="error">{changePinError}</Alert>}

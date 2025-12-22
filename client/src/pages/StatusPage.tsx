@@ -53,7 +53,7 @@ const StatusPage: React.FC = () => {
 
   return (
     <Container>
-      <Typography variant="h4" sx ={{textAlign: "center"}} gutterBottom>
+      <Typography variant="h4" color="text.primary" sx={{ textAlign: "center" }} gutterBottom>
         NVR Status
       </Typography>
       <Box sx={{ width: "100%" }}>

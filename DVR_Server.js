@@ -7,14 +7,11 @@ import { deleteDbEntryIfFileMissing } from "./storage-management.js";
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 //======================================================
 let spawnedProcesses = []; // Keep track of spawnedProcessesID to terminate on exit
 
-const channelDirectoryBase = path.join("/mnt/m2nvme", `capture/ch1`);
-
 console.log("db cleanup");
-deleteDbEntryIfFileMissing(db, channelDirectoryBase);
+deleteDbEntryIfFileMissing(db);
 // storageCleanup(db)
 
 startApiServer(db, spawnedProcesses);

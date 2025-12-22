@@ -99,4 +99,30 @@ export async function fetchTimeframeByChannel() {
   });
 }
 
+// Function to fetch video segments for a specific channel and timeframe
+export function getVideoSegmentsForTimeframe(channel, startTime, endTime) {
+  return new Promise((resolve, reject) => {
+    // Only select the fields we need for the timeline
+    // We want segments that overlap with [startTime, endTime]
+    // Condition: segment.start_time < endTime AND segment.end_time > startTime
+    const query = `
+      SELECT start_time, end_time
+      FROM video_segments
+      WHERE channel_number = ?
+        AND start_time < ?
+        AND end_time > ?
+      ORDER BY start_time ASC;
+    `;
+
+    db.all(query, [channel, endTime, startTime], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        // Map to format that might be easier for frontend if needed, or return raw
+        resolve(rows);
+      }
+    });
+  });
+}
+
 export { db };

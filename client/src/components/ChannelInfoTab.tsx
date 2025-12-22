@@ -44,7 +44,7 @@ const ChannelInfoTab: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>Channel Information</Typography>
+      <Typography variant="h6" color="text.primary" gutterBottom>Channel Information</Typography>
       {channelData.length > 0 ? (
         <TableContainer component={Paper}>
           <Table aria-label="channel info table">
