@@ -44,6 +44,17 @@ let db = new sqlite3.Database(
       expires_at INTEGER    -- Optional: Expiration timestamp
     )
   `);
+
+    // Create the system_metrics table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS system_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cpu_usage REAL,
+        ram_usage REAL,
+        cpu_temp REAL,
+        timestamp INTEGER
+      )
+    `);
   }
 );
 
@@ -119,6 +130,36 @@ export function getVideoSegmentsForTimeframe(channel, startTime, endTime) {
         reject(err);
       } else {
         // Map to format that might be easier for frontend if needed, or return raw
+        resolve(rows);
+      }
+    });
+  });
+}
+
+export function insertSystemMetrics(cpuUsage, ramUsage, cpuTemp) {
+  const timestamp = Date.now();
+  db.run(
+    `INSERT INTO system_metrics (cpu_usage, ram_usage, cpu_temp, timestamp) VALUES (?, ?, ?, ?)`,
+    [cpuUsage, ramUsage, cpuTemp, timestamp],
+    (err) => {
+      if (err) {
+        console.error("Error inserting system metrics:", err.message);
+      }
+    }
+  );
+}
+
+export function getSystemMetrics(limit = 100) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT * FROM system_metrics
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `;
+    db.all(query, [limit], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
         resolve(rows);
       }
     });

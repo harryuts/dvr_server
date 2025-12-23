@@ -2,10 +2,12 @@ import { startApiServer } from "./apiServer.js";
 import process from "process";
 import path from "path";
 import { scheduleRecording, isTimeToRun } from "./scheduleRecording.js";
-import { db } from "./dbFunctions.js";
+import * as dbFunctions from "./dbFunctions.js";
 import { deleteDbEntryIfFileMissing } from "./storage-management.js";
 import { fileURLToPath } from 'url';
+import si from "systeminformation";
 
+const db = dbFunctions.db;
 const __filename = fileURLToPath(import.meta.url);
 //======================================================
 let spawnedProcesses = []; // Keep track of spawnedProcessesID to terminate on exit
@@ -20,6 +22,27 @@ startApiServer(db, spawnedProcesses);
 scheduleRecording(db, spawnedProcesses);
 setInterval(() => scheduleRecording(db, spawnedProcesses), 24 * 60 * 60 * 1000);
 isTimeToRun(db, spawnedProcesses);
+
+// Function to collect and store system metrics
+async function collectAndStoreMetrics() {
+  try {
+    const cpu = await si.currentLoad();
+    const mem = await si.mem();
+    const temp = await si.cpuTemperature();
+
+    const cpuUsage = cpu.currentLoad;
+    const ramUsage = (mem.active / mem.total) * 100;
+    const cpuTemp = temp.main || 0; // Fallback to 0 if temp is not available
+
+    dbFunctions.insertSystemMetrics(cpuUsage, ramUsage, cpuTemp);
+  } catch (error) {
+    console.error("Error collecting system metrics:", error);
+  }
+}
+
+// Start collecting metrics every 10 seconds
+setInterval(collectAndStoreMetrics, 10000);
+collectAndStoreMetrics(); // Run immediately on start
 
 function cleanupOnExit(childProcesses) {
   childProcesses.forEach((child) => {

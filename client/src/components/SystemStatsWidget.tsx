@@ -12,8 +12,11 @@ interface SystemStats {
     usedMem: number;
 }
 
+import SystemMetricsModal from './SystemMetricsModal';
+
 const SystemStatsWidget: React.FC = () => {
     const [stats, setStats] = useState<SystemStats | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -45,58 +48,72 @@ const SystemStatsWidget: React.FC = () => {
     if (!stats) return null;
 
     return (
-        <Box sx={{ p: 2, borderTop: '1px solid rgba(255, 255, 255, 0.12)' }}>
-            <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: '#b0bec5', fontWeight: 600 }}>CPU</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#b0bec5' }}>{stats.cpuCount} Cores</Typography>
-                        {stats.cpuTemp && (
-                            <Typography variant="caption" sx={{
-                                color: stats.cpuTemp > 80 ? '#f44336' : stats.cpuTemp > 60 ? '#ff9800' : '#4caf50',
-                                fontWeight: 600
-                            }}>
-                                {stats.cpuTemp}°C
-                            </Typography>
-                        )}
-                        <Typography variant="caption" sx={{ color: '#ffffff', fontWeight: 600 }}>{stats.cpu}%</Typography>
+        <>
+            <Box
+                onClick={() => setIsModalOpen(true)}
+                sx={{
+                    p: 2,
+                    borderTop: '1px solid rgba(255, 255, 255, 0.12)',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s',
+                    '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.05)'
+                    }
+                }}
+            >
+                <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#b0bec5', fontWeight: 600 }}>CPU</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="caption" sx={{ color: '#b0bec5' }}>{stats.cpuCount} Cores</Typography>
+                            {stats.cpuTemp && (
+                                <Typography variant="caption" sx={{
+                                    color: stats.cpuTemp > 80 ? '#f44336' : stats.cpuTemp > 60 ? '#ff9800' : '#4caf50',
+                                    fontWeight: 600
+                                }}>
+                                    {stats.cpuTemp}°C
+                                </Typography>
+                            )}
+                            <Typography variant="caption" sx={{ color: '#ffffff', fontWeight: 600 }}>{stats.cpu}%</Typography>
+                        </Box>
                     </Box>
+                    <LinearProgress
+                        variant="determinate"
+                        value={stats.cpu}
+                        sx={{
+                            height: 6,
+                            borderRadius: 3,
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                            '& .MuiLinearProgress-bar': {
+                                backgroundColor: stats.cpu > 80 ? '#f44336' : '#2196F3'
+                            }
+                        }}
+                    />
                 </Box>
-                <LinearProgress
-                    variant="determinate"
-                    value={stats.cpu}
-                    sx={{
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        '& .MuiLinearProgress-bar': {
-                            backgroundColor: stats.cpu > 80 ? '#f44336' : '#2196F3'
-                        }
-                    }}
-                />
-            </Box>
-            <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: '#b0bec5', fontWeight: 600 }}>RAM</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#b0bec5' }}>{formatBytes(stats.totalMem)}</Typography>
-                        <Typography variant="caption" sx={{ color: '#ffffff', fontWeight: 600 }}>{stats.ram}%</Typography>
+                <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#b0bec5', fontWeight: 600 }}>RAM</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="caption" sx={{ color: '#b0bec5' }}>{formatBytes(stats.totalMem)}</Typography>
+                            <Typography variant="caption" sx={{ color: '#ffffff', fontWeight: 600 }}>{stats.ram}%</Typography>
+                        </Box>
                     </Box>
+                    <LinearProgress
+                        variant="determinate"
+                        value={stats.ram}
+                        sx={{
+                            height: 6,
+                            borderRadius: 3,
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                            '& .MuiLinearProgress-bar': {
+                                backgroundColor: stats.ram > 80 ? '#f44336' : '#2196F3'
+                            }
+                        }}
+                    />
                 </Box>
-                <LinearProgress
-                    variant="determinate"
-                    value={stats.ram}
-                    sx={{
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        '& .MuiLinearProgress-bar': {
-                            backgroundColor: stats.ram > 80 ? '#f44336' : '#2196F3'
-                        }
-                    }}
-                />
             </Box>
-        </Box>
+            <SystemMetricsModal open={isModalOpen} onClose={() => setIsModalOpen(false)} />
+        </>
     );
 };
 

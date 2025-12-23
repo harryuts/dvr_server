@@ -32,6 +32,28 @@ router.put("/config/:originalChannelId", authenticateSession, async (req, res) =
       updatedConfig
     );
     if (success) {
+      // Restart the recording process for the updated channel
+      console.log(`Restarting recording for channel: ${originalChannelId}`);
+      const { stopRecordingForChannel, startRecordingForChannel } = await import(
+        "../scheduleRecording.js"
+      );
+
+      await stopRecordingForChannel(originalChannelId);
+
+      const result = await startRecordingForChannel(
+        req.app.locals.db,
+        req.app.locals.spawnedProcesses,
+        updatedConfig
+      );
+
+      if (result.success) {
+        console.log(`Recording restarted for channel: ${updatedConfig.channel}`);
+      } else {
+        console.log(
+          `Recording not restarted for ${updatedConfig.channel}: ${result.reason}`
+        );
+      }
+
       res.json({ message: "Channel configuration updated successfully" });
     } else {
       res

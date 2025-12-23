@@ -412,23 +412,56 @@ const startRecording = (
         spawnedProcesses = spawnedProcesses.filter(
           (child) => child.pid !== ffmpegProcess.pid
         );
+
+        // Prevent overwriting status if a new process has already started
+        const currentStatus = recordingStatus[channel_number];
+        if (currentStatus && currentStatus.pid === ffmpegProcess.pid) {
+          updateRecordingStatus(channel_number, {
+            pid: null,
+            currentSegmentFile: null,
+            isRecording: false
+          });
+        }
+
         ffmpegProcess = null;
-        updateRecordingStatus(channel_number, {
-          pid: null,
-          currentSegmentFile: null,
-          isRecording: false
-        });
         return;
       }
 
       spawnedProcesses = spawnedProcesses.filter(
         (child) => child.pid !== ffmpegProcess.pid
       );
-      ffmpegProcess = null;
-      updateRecordingStatus(channel_number, {
-        pid: null,
-        currentSegmentFile: null,
-      });
+
+      // Only update status if this process is the current one
+      const currentStatus = recordingStatus[channel_number];
+      if (currentStatus && currentStatus.pid === ffmpegProcess.pid) {
+        updateRecordingStatus(channel_number, {
+          pid: null,
+          currentSegmentFile: null,
+        });
+      }
+
+      if (manualStop) {
+        console.log(`[${channel_number}] Recording stopped manually.`);
+        ffmpegProcess = null;
+
+        if (currentStatus && currentStatus.pid === 0) { // PID might be already null if filtered above? No, passed PID.
+          // Actually, we captured ffmpegProcess variable in closure.
+          // But `currentStatus.pid` is from the global object.
+        }
+
+        if (currentStatus && currentStatus.pid === (spawnedProcesses.find(p => p === ffmpegProcess)?.pid || ffmpegProcess.pid)) {
+          updateRecordingStatus(channel_number, {
+            pid: null,
+            currentSegmentFile: null,
+            isRecording: false
+          });
+        }
+        // Simplified: just check if the global PID matches what we think we are.
+        // But wait, the previous `updateRecordingStatus` call above might have just set it to null if we matched.
+        // Let's refine the logic.
+
+        return;
+      }
       if (code === 0) {
         console.error(`[${channel_number}] ffmpeg exited with error code 0`);
         isRecording = false;

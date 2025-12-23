@@ -16,6 +16,7 @@ import mediaRoutes from "./routes/media_api.js";
 import posRoutes from "./routes/pos_api.js";
 import { recordingControls } from "./scheduleRecording.js";
 import storageManager from "./storage-management.js";
+import { getSystemMetrics } from "./dbFunctions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +102,17 @@ const startApiServer = (db, spawnedProcesses) => {
     } catch (error) {
       console.error(error.message);
       res.status(500).json({ error: "Failed to get the query" });
+    }
+  });
+
+  app.get("/api/metrics/history", authenticateSession, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const metrics = await getSystemMetrics(limit);
+      res.json(metrics);
+    } catch (error) {
+      console.error(error.message);
+      res.status(500).json({ error: "Failed to fetch metrics history" });
     }
   });
 
