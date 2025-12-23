@@ -3,6 +3,7 @@ import { spawn } from "child_process";
 import path from "path";
 import configManager from "./configManager.js";
 import { db } from "./dbFunctions.js";
+import { getRecordingStatus } from "./recording.js";
 //======================================================
 const baseVideoDirectory = configManager.baseVideoDirectory;
 //======================================================
@@ -55,6 +56,26 @@ export async function getPicture(req, res) {
         return;
       }
       files = rows;
+      if (files.length === 0) {
+        const recStatus = getRecordingStatus(channelNumber);
+        if (
+          recStatus &&
+          recStatus.isRecording &&
+          recStatus.currentSegmentFile &&
+          recStatus.currentSegmentStartTime
+        ) {
+          if (parseInt(startTime) >= recStatus.currentSegmentStartTime) {
+            files = [
+              {
+                filename: recStatus.currentSegmentFile,
+                start_time: recStatus.currentSegmentStartTime,
+                end_time: Date.now(),
+              },
+            ];
+          }
+        }
+      }
+
       if (files.length === 0) {
         return res
           .status(404)
