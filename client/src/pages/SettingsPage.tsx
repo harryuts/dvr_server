@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { Tabs, Tab, Typography, Box, Container } from "@mui/material";
 import ScheduleSettingsTab from "../components/ScheduleSettingTab";
 import ChannelSettingsTab from "../components/ChannelSettingTab";
-import ChangePinTab from "../components/ChangePinTab";
+import SecurityTab from "../components/SecurityTab";
 import ApiKeyManagementTab from "../components/ApiKeyManagementTab";
 import StorageTab from "../components/StorageTab";
+import SystemTab from "../components/SystemTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -60,6 +61,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="Security" {...a11yProps(2)} />
             <Tab label="API Key" {...a11yProps(3)} />
             <Tab label="Storage" {...a11yProps(4)} />
+            <Tab label="System" {...a11yProps(5)} />
           </Tabs>
         </Box>
         <TabPanel value={value} index={0}>
@@ -69,13 +71,16 @@ const SettingsPage: React.FC = () => {
           <ScheduleSettingsTab />
         </TabPanel>
         <TabPanel value={value} index={2}>
-          <ChangePinTab />
+          <SecurityTab />
         </TabPanel>
         <TabPanel value={value} index={3}>
           <ApiKeyManagementTab />
         </TabPanel>
         <TabPanel value={value} index={4}>
           <StorageTab />
+        </TabPanel>
+        <TabPanel value={value} index={5}>
+          <SystemTab />
         </TabPanel>
       </Box>
     </Container>

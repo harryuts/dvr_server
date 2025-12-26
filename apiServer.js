@@ -22,7 +22,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3006;
-const baseVideoDirectory = configManager.baseVideoDirectory;
+// Access baseVideoDirectory dynamically from configManager
 
 app.use(
   cors({
@@ -69,11 +69,11 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.use(
     "/cctv",
-    express.static(path.join(baseVideoDirectory, "video_output"))
+    express.static(path.join(configManager.baseVideoDirectory, "video_output"))
   );
   app.use(
     "/cctv_evidence",
-    express.static(path.join(baseVideoDirectory, "evidence"))
+    express.static(path.join(configManager.baseVideoDirectory, "evidence"))
   );
   // Return 404 if file not found in /cctv_evidence, preventing fall-through to SPA
   app.use("/cctv_evidence", (req, res) => {
@@ -82,11 +82,15 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.get("/api/recording/status", authenticateSession, async (req, res) => {
     try {
-      const result = [];
+      const recordingStatusCallback = [];
+      const knownPids = new Set();
+
+      // 1. Get Known Recording Status
       for (const channel in recordingControls) {
         if (recordingControls.hasOwnProperty(channel)) {
           const status = recordingControls[channel].getStatus();
-          result.push({
+          if (status.pid) knownPids.add(String(status.pid));
+          recordingStatusCallback.push({
             channel: channel,
             pid: status.pid,
             isRecording: status.isRecording,
@@ -98,7 +102,40 @@ const startApiServer = (db, spawnedProcesses) => {
         }
       }
 
-      res.json(result);
+      // 2. Get All FFmpeg Processes via System Command
+      const { exec } = await import("child_process");
+      const util = await import("util");
+      const execPromise = util.promisify(exec);
+
+      let otherProcesses = [];
+      try {
+        const { stdout } = await execPromise("ps -eo pid,args");
+        const lines = stdout.split("\n");
+        // Skip header
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          // Split by first space to get PID
+          const parts = line.split(/\s+/);
+          const pid = parts[0];
+          const command = lines[i].substring(lines[i].indexOf(pid) + pid.length).trim();
+
+          if (command.includes("ffmpeg") && !knownPids.has(pid)) {
+            otherProcesses.push({
+              pid: parseInt(pid),
+              command: command
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching system processes:", e);
+      }
+
+      res.json({
+        recordingStatus: recordingStatusCallback,
+        otherProcesses: otherProcesses
+      });
     } catch (error) {
       console.error(error.message);
       res.status(500).json({ error: "Failed to get the query" });
@@ -107,8 +144,8 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.get("/api/metrics/history", authenticateSession, async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit) || 100;
-      const metrics = await getSystemMetrics(limit);
+      const range = req.query.range || 'daily';
+      const metrics = await getSystemMetrics(range);
       res.json(metrics);
     } catch (error) {
       console.error(error.message);
@@ -118,7 +155,7 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.get("/api/disk/usage", authenticateSession, async (req, res) => {
     try {
-      res.json(await storageManager.getDiskUsagePercentage(baseVideoDirectory));
+      res.json(await storageManager.getDiskUsagePercentage(configManager.baseVideoDirectory));
     } catch (error) {
       console.error(error.message);
       res.status(500).json({ error: "Failed to get the query" });

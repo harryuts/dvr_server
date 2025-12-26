@@ -1,4 +1,33 @@
 import { getAuthData } from "../utils/auth";
+import { getApiBaseUrl } from "./apiConfig";
+
+/**
+ * Simple fetch wrapper for unauthenticated API calls (e.g., login flow)
+ */
+export const apiFetch = async <T = unknown>(
+  endpoint: string,
+  method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+  body: unknown = null
+): Promise<{ ok: boolean; status: number; data: T }> => {
+  const url = `${getApiBaseUrl()}${endpoint}`;
+  
+  const config: RequestInit = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : null,
+  };
+
+  const response = await fetch(url, config);
+  const data = await response.json().catch(() => ({}));
+  
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: data as T,
+  };
+};
 
 export const authenticatedFetch = async (
   url: string,

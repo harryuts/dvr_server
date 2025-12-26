@@ -20,7 +20,9 @@ const excludes = [
     '.env',
     'certs/',
     'test_media/',
-    'config.json'
+    'config.json',
+    'sync.sh',
+    '*.bat'
 ];
 
 const excludeArgs = excludes.map(e => `--exclude='${e}'`).join(' ');

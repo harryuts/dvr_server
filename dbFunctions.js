@@ -149,18 +149,62 @@ export function insertSystemMetrics(cpuUsage, ramUsage, cpuTemp) {
   );
 }
 
-export function getSystemMetrics(limit = 100) {
+export function getSystemMetrics(range = 'daily') {
   return new Promise((resolve, reject) => {
-    const query = `
-      SELECT * FROM system_metrics
-      ORDER BY timestamp DESC
-      LIMIT ?
-    `;
-    db.all(query, [limit], (err, rows) => {
+    let query = '';
+    let params = [];
+    const now = Date.now();
+
+    if (range === 'weekly') {
+      // Last 7 days, grouped by ~15 minutes (900000ms)
+      const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000);
+      query = `
+        SELECT 
+          AVG(cpu_usage) as cpu_usage, 
+          AVG(ram_usage) as ram_usage, 
+          AVG(cpu_temp) as cpu_temp, 
+          (timestamp / 900000) * 900000 as timestamp
+        FROM system_metrics
+        WHERE timestamp > ?
+        GROUP BY timestamp / 900000
+        ORDER BY timestamp ASC
+      `;
+      params = [oneWeekAgo];
+    } else if (range === 'daily') {
+      // Last 24 hours, grouped by ~2 minutes (120000ms)
+      const oneDayAgo = now - (24 * 60 * 60 * 1000);
+      query = `
+        SELECT 
+          AVG(cpu_usage) as cpu_usage, 
+          AVG(ram_usage) as ram_usage, 
+          AVG(cpu_temp) as cpu_temp, 
+          (timestamp / 120000) * 120000 as timestamp
+        FROM system_metrics
+        WHERE timestamp > ?
+        GROUP BY timestamp / 120000
+        ORDER BY timestamp ASC
+      `;
+      params = [oneDayAgo];
+    } else {
+      // Default / Raw fallback (last 1000 points)
+      query = `
+        SELECT * FROM system_metrics
+        ORDER BY timestamp DESC
+        LIMIT 1000
+      `;
+      params = [];
+    }
+
+    db.all(query, params, (err, rows) => {
       if (err) {
         reject(err);
       } else {
-        resolve(rows);
+        if (!range || range === 'raw') {
+          resolve(rows);
+        } else {
+          // For aggregated queries, we ordered ASC for graph, raw was DESC
+          resolve(rows);
+        }
       }
     });
   });

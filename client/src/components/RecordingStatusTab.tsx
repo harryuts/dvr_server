@@ -14,6 +14,8 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import StopIcon from "@mui/icons-material/Stop";
@@ -33,15 +35,36 @@ interface RecordingStatus {
   currentFile: string;
 }
 
+interface OtherProcess {
+  pid: number;
+  command: string;
+}
+
+interface TerminationLog {
+  timestamp: string;
+  code: number | null;
+  signal: string | null;
+  uptime: string;
+  reason: string;
+}
+
+interface RecordingStatusResponse {
+  recordingStatus: RecordingStatus[];
+  otherProcesses: OtherProcess[];
+}
+
 const RecordingStatusTab = () => {
   const [recordingData, setRecordingData] = useState<RecordingStatus[]>([]);
+  const [otherProcesses, setOtherProcesses] = useState<OtherProcess[]>([]);
   const apiUrl = `${getApiBaseUrl()}/api/recording/status`;
   const [apiLoading, setApiLoading] = useState(false);
 
   // Modal State
   const [openModal, setOpenModal] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
+  const [terminationLogs, setTerminationLogs] = useState<TerminationLog[]>([]);
   const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -53,9 +76,16 @@ const RecordingStatusTab = () => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const data: RecordingStatus[] = await response.json();
+        const data: RecordingStatusResponse = await response.json();
         setApiLoading(false);
-        setRecordingData(data);
+        // Handle both new and old format just in case
+        if (Array.isArray(data)) {
+          setRecordingData(data); // Legacy fallback
+          setOtherProcesses([]);
+        } else {
+          setRecordingData(data.recordingStatus || []);
+          setOtherProcesses(data.otherProcesses || []);
+        }
       } catch (error) {
         console.error("Error fetching recording status:", error);
       }
@@ -78,15 +108,46 @@ const RecordingStatusTab = () => {
     }
   };
 
+  const fetchTerminationLogs = async (channel: string) => {
+    try {
+      const response = await authenticatedFetch(`${getApiBaseUrl()}/api/channels/logs/termination/${channel}`);
+      if (response.ok) {
+        const data = await response.json();
+        setTerminationLogs(data);
+      }
+    } catch (e) {
+      console.error("Error fetching termination logs", e);
+    }
+  };
+
   const handleRowClick = (channel: string) => {
     setSelectedChannel(channel);
     setOpenModal(true);
     setLogs([]); // Clear previous logs
-    fetchLogs(channel);
+    setTerminationLogs([]);
+    setActiveTab(0); // Default to Live Logs
 
-    // Start polling logs
+    fetchLogs(channel);
+    startPolling(channel, 0);
+  };
+
+  const startPolling = (channel: string, tabIndex: number) => {
     if (logIntervalRef.current) clearInterval(logIntervalRef.current);
-    logIntervalRef.current = setInterval(() => fetchLogs(channel), 2000);
+
+    if (tabIndex === 0) {
+      fetchLogs(channel);
+      logIntervalRef.current = setInterval(() => fetchLogs(channel), 2000);
+    } else {
+      fetchTerminationLogs(channel);
+      logIntervalRef.current = setInterval(() => fetchTerminationLogs(channel), 5000);
+    }
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+    if (selectedChannel) {
+      startPolling(selectedChannel, newValue);
+    }
   };
 
   const handleCloseModal = () => {
@@ -100,10 +161,10 @@ const RecordingStatusTab = () => {
 
   // Auto-scroll to bottom of logs
   useEffect(() => {
-    if (openModal && logsEndRef.current) {
+    if (openModal && activeTab === 0 && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [logs, openModal]);
+  }, [logs, openModal, activeTab]);
 
 
   return (
@@ -166,6 +227,39 @@ const RecordingStatusTab = () => {
         <Typography>Not Recording</Typography>
       )}
 
+      {/* Other FFmpeg Processes Section */}
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h6" color="text.primary" gutterBottom>
+          Other FFmpeg Processes (Unassociated)
+        </Typography>
+        {otherProcesses.length > 0 ? (
+          <TableContainer component={Paper}>
+            <Table aria-label="other ffmpeg processes table">
+              <TableHead>
+                <TableRow>
+                  <TableCell width="10%">PID</TableCell>
+                  <TableCell width="90%">Command</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {otherProcesses.map((proc) => (
+                  <TableRow key={proc.pid}>
+                    <TableCell>{proc.pid}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {proc.command}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No unassociated ffmpeg processes found.
+          </Typography>
+        )}
+      </Box>
+
       {/* Log Viewer Modal */}
       <Dialog
         open={openModal}
@@ -175,27 +269,68 @@ const RecordingStatusTab = () => {
         aria-labelledby="log-dialog-title"
       >
         <DialogTitle id="log-dialog-title">
-          Live Capture Status - {selectedChannel}
+          Channel Status - {selectedChannel}
         </DialogTitle>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={activeTab} onChange={handleTabChange} aria-label="log tabs">
+            <Tab label="Live Logs" />
+            <Tab label="Termination Events" />
+          </Tabs>
+        </Box>
         <DialogContent dividers>
-          <Box sx={{
-            bgcolor: '#000',
-            color: '#0f0',
-            p: 2,
-            borderRadius: 1,
-            fontFamily: 'monospace',
-            maxHeight: '60vh',
-            overflowY: 'auto'
-          }}>
-            {logs.length === 0 ? (
-              <Typography variant="body2" color="gray">No logs available...</Typography>
-            ) : (
-              logs.map((line, index) => (
-                <div key={index}>{line}</div>
-              ))
-            )}
-            <div ref={logsEndRef} />
-          </Box>
+          {activeTab === 0 && (
+            <Box sx={{
+              bgcolor: '#000',
+              color: '#0f0',
+              p: 2,
+              borderRadius: 1,
+              fontFamily: 'monospace',
+              maxHeight: '60vh',
+              overflowY: 'auto'
+            }}>
+              {logs.length === 0 ? (
+                <Typography variant="body2" color="gray">No logs available...</Typography>
+              ) : (
+                logs.map((line, index) => (
+                  <div key={index}>{line}</div>
+                ))
+              )}
+              <div ref={logsEndRef} />
+            </Box>
+          )}
+
+          {activeTab === 1 && (
+            <Box sx={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {terminationLogs.length === 0 ? (
+                <Typography sx={{ p: 2 }} color="text.secondary">No termination events recorded.</Typography>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Time</TableCell>
+                        <TableCell>Code</TableCell>
+                        <TableCell>Signal</TableCell>
+                        <TableCell>Reason</TableCell>
+                        <TableCell>Uptime Before Exit</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {terminationLogs.map((log, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
+                          <TableCell>{log.code ?? 'N/A'}</TableCell>
+                          <TableCell>{log.signal ?? 'N/A'}</TableCell>
+                          <TableCell>{log.reason}</TableCell>
+                          <TableCell>{log.uptime}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseModal} color="primary">

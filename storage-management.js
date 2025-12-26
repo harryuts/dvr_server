@@ -3,7 +3,7 @@ import * as fsLegacy from "fs";
 import path from "path";
 import configManager from "./configManager.js";
 
-const baseVideoDirectory = configManager.baseVideoDirectory;
+// Access baseVideoDirectory dynamically from configManager
 
 export const getDiskUsagePercentage = async (directory) => {
   try {
@@ -239,10 +239,10 @@ export const storageCleanup = async (db) => {
   const maxStoragePercent = await configManager.getMaxStoragePercent();
 
   while (
-    (await getDiskUsagePercentage(baseVideoDirectory)) > maxStoragePercent
+    (await getDiskUsagePercentage(configManager.baseVideoDirectory)) > maxStoragePercent
   ) {
     const oldestFileList = await findOldestFileDirectoryFullPaths(
-      baseVideoDirectory + "/capture"
+      configManager.baseVideoDirectory + "/capture"
     );
     await deleteFilesAndDbEntries(db, oldestFileList);
   }

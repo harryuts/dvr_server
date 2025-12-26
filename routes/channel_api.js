@@ -174,6 +174,19 @@ router.get("/logs/:channel", authenticateSession, async (req, res) => {
   }
 });
 
+// Get termination logs for a specific channel
+router.get("/logs/termination/:channel", authenticateSession, async (req, res) => {
+  const channel = req.params.channel;
+  try {
+    const { getTerminationLogs } = await import("../recording.js");
+    const logs = getTerminationLogs(channel);
+    res.json(logs);
+  } catch (error) {
+    console.error(`Error fetching termination logs for channel ${channel}:`, error);
+    res.status(500).json({ error: "Failed to fetch termination logs" });
+  }
+});
+
 // Get channel timeframe information from database
 router.get("/timeframe", authenticateSession, async (req, res) => {
   try {

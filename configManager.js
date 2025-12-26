@@ -8,9 +8,10 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_PIN = "123456";
 const configFilePath = path.join(__dirname, "config.json"); // Path to your config file
 const segmentDuration = 900; // 15 minutes in seconds
-const baseVideoDirectory = "/mnt/m2nvme";
+let baseVideoDirectory = "/mnt/m2nvme"; // Default value, will be loaded from config
 let liveCaptureFrameRate = 1; // Default: 1 frame per second
 let maxStoragePercent = 80; // Default: 80%
+let authAppId = "mammam"; // Default: mammam
 
 async function readConfig() {
   try {
@@ -62,9 +63,25 @@ async function initializeConfig() {
     console.log("Config file initialized with default max storage percent (80%).");
   }
 
+  // Initialize authAppId if not set
+  if (!config.authAppId) {
+    config.authAppId = "mammam";
+    await writeConfig(config);
+    console.log("Config file initialized with default authAppId (mammam).");
+  }
+
+  // Initialize baseVideoDirectory if not set
+  if (!config.baseVideoDirectory) {
+    config.baseVideoDirectory = "/mnt/m2nvme";
+    await writeConfig(config);
+    console.log("Config file initialized with default baseVideoDirectory (/mnt/m2nvme).");
+  }
+
   // Load live capture frame rate into memory
   liveCaptureFrameRate = config.liveCaptureFrameRate || 1;
   maxStoragePercent = config.maxStoragePercent || 80;
+  authAppId = config.authAppId || "mammam";
+  baseVideoDirectory = config.baseVideoDirectory || "/mnt/m2nvme";
 }
 
 initializeConfig();
@@ -160,7 +177,33 @@ export async function updateMaxStoragePercent(percent) {
   return true;
 }
 
-export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent };
+export async function getAuthAppId() {
+  const config = await readConfig();
+  return config.authAppId || "mammam";
+}
+
+export async function updateAuthAppId(newAppId) {
+  const config = await readConfig();
+  config.authAppId = newAppId;
+  await writeConfig(config);
+  authAppId = config.authAppId;
+  return true;
+}
+
+export async function getBaseVideoDirectory() {
+  const config = await readConfig();
+  return config.baseVideoDirectory || "/mnt/m2nvme";
+}
+
+export async function updateBaseVideoDirectory(newDirectory) {
+  const config = await readConfig();
+  config.baseVideoDirectory = newDirectory;
+  await writeConfig(config);
+  baseVideoDirectory = config.baseVideoDirectory;
+  return true;
+}
+
+export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent, readConfig, writeConfig };
 export default {
   segmentDuration,
   baseVideoDirectory,
@@ -178,4 +221,11 @@ export default {
   updateLiveCaptureFrameRate,
   getMaxStoragePercent,
   updateMaxStoragePercent,
+  getAuthAppId,
+  updateAuthAppId,
+  getBaseVideoDirectory,
+  updateBaseVideoDirectory,
+  readConfig,
+  writeConfig,
 };
+

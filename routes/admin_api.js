@@ -248,7 +248,11 @@ router.get("/system-stats", authenticateSession, async (req, res) => {
 router.get("/storage-config", authenticateSession, async (req, res) => {
   try {
     const percent = await configManager.getMaxStoragePercent();
-    res.json({ maxStoragePercent: percent });
+    const baseDir = await configManager.getBaseVideoDirectory();
+    res.json({ 
+      maxStoragePercent: percent,
+      baseVideoDirectory: baseDir
+    });
   } catch (error) {
     console.error("Error fetching storage config:", error);
     res.status(500).json({ message: "Failed to fetch storage config", error: error.message });
@@ -257,18 +261,142 @@ router.get("/storage-config", authenticateSession, async (req, res) => {
 
 // Update Storage Config
 router.post("/storage-config", authenticateSession, async (req, res) => {
-  const { maxStoragePercent } = req.body;
+  const { maxStoragePercent, baseVideoDirectory } = req.body;
 
-  if (!maxStoragePercent || maxStoragePercent < 1 || maxStoragePercent > 100) {
+  if (maxStoragePercent !== undefined && (maxStoragePercent < 1 || maxStoragePercent > 100)) {
     return res.status(400).json({ message: "Invalid percentage value (1-100)" });
   }
 
+  if (baseVideoDirectory !== undefined && typeof baseVideoDirectory !== 'string') {
+    return res.status(400).json({ message: "Base video directory must be a string" });
+  }
+
   try {
-    await configManager.updateMaxStoragePercent(maxStoragePercent);
+    if (maxStoragePercent !== undefined) {
+      await configManager.updateMaxStoragePercent(maxStoragePercent);
+    }
+    if (baseVideoDirectory !== undefined) {
+      await configManager.updateBaseVideoDirectory(baseVideoDirectory.trim());
+    }
     res.json({ message: "Storage configuration updated successfully" });
   } catch (error) {
     console.error("Error updating storage config:", error);
     res.status(500).json({ message: "Failed to update storage config", error: error.message });
+  }
+});
+
+// Get Storage Utilization
+router.get("/storage-utilization", authenticateSession, async (req, res) => {
+  try {
+    const baseDir = await configManager.getBaseVideoDirectory();
+    const si = (await import('systeminformation')).default;
+    const fsSize = await si.fsSize();
+    
+    // Find the filesystem that contains our base directory (recording mount)
+    // Sort by mount path length (longest first) to get the most specific mount
+    const sortedFs = fsSize.sort((a, b) => b.mount.length - a.mount.length);
+    let recordingFs = sortedFs.find(fs => baseDir.startsWith(fs.mount));
+    
+    if (!recordingFs) {
+      return res.status(404).json({ 
+        message: "Could not determine storage information for video directory",
+        baseDirectory: baseDir,
+        availableFilesystems: fsSize.map(fs => ({ mount: fs.mount, fs: fs.fs }))
+      });
+    }
+
+    // Find the system root filesystem
+    const systemFs = fsSize.find(fs => fs.mount === '/');
+
+    const result = {
+      baseDirectory: baseDir,
+      recording: {
+        totalBytes: recordingFs.size,
+        usedBytes: recordingFs.used,
+        availableBytes: recordingFs.available,
+        usedPercent: recordingFs.use,
+        mount: recordingFs.mount,
+        filesystem: recordingFs.fs
+      }
+    };
+
+    // Add system disk info if different from recording
+    if (systemFs && systemFs.mount !== recordingFs.mount) {
+      result.system = {
+        totalBytes: systemFs.size,
+        usedBytes: systemFs.used,
+        availableBytes: systemFs.available,
+        usedPercent: systemFs.use,
+        mount: systemFs.mount,
+        filesystem: systemFs.fs
+      };
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching storage utilization:", error);
+    res.status(500).json({ message: "Failed to fetch storage utilization", error: error.message });
+  }
+});
+
+// Get Auth App ID Config
+router.get("/auth-app-id-config", authenticateSession, async (req, res) => {
+  try {
+    const authAppId = await configManager.getAuthAppId();
+    res.json({ authAppId: authAppId });
+  } catch (error) {
+    console.error("Error fetching auth app ID config:", error);
+    res.status(500).json({ message: "Failed to fetch auth app ID configuration", error: error.message });
+  }
+});
+
+// Update Auth App ID Config
+router.post("/auth-app-id-config", authenticateSession, async (req, res) => {
+  const { authAppId } = req.body;
+
+  if (!authAppId || typeof authAppId !== 'string' || authAppId.trim().length === 0) {
+    return res.status(400).json({ message: "Invalid auth app ID. Must be a non-empty string." });
+  }
+
+  try {
+    await configManager.updateAuthAppId(authAppId.trim());
+    res.json({ message: "Auth app ID updated successfully" });
+  } catch (error) {
+    console.error("Error updating auth app ID config:", error);
+    res.status(500).json({ message: "Failed to update auth app ID configuration", error: error.message });
+  }
+});
+
+// Get System Config (raw config.json)
+router.get("/system-config", authenticateSession, async (req, res) => {
+  try {
+    const config = await configManager.readConfig();
+    res.json({ config: config });
+  } catch (error) {
+    console.error("Error fetching system config:", error);
+    res.status(500).json({ message: "Failed to fetch system configuration", error: error.message });
+  }
+});
+
+// Update System Config (raw config.json)
+router.put("/system-config", authenticateSession, async (req, res) => {
+  const { config } = req.body;
+
+  if (!config) {
+    return res.status(400).json({ message: "Config data is required" });
+  }
+
+  // Validate that the config is a valid object
+  if (typeof config !== 'object' || Array.isArray(config)) {
+    return res.status(400).json({ message: "Config must be a valid JSON object" });
+  }
+
+  try {
+    await configManager.writeConfig(config);
+    res.json({ message: "System configuration updated successfully" });
+  } catch (error) {
+    console.error("Error updating system config:", error);
+    res.status(500).json({ message: "Failed to update system configuration", error: error.message });
   }
 });
 

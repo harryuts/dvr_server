@@ -61,7 +61,7 @@ const StatusPage: React.FC = () => {
           <Tabs value={value} onChange={handleChange} centered aria-label="status tabs">
             <Tab label="Recording Status" {...a11yProps(0)} />
             <Tab label="Channel Info" {...a11yProps(1)} />
-            <Tab label="Disk Space" {...a11yProps(2)} />
+            <Tab label="Recording Storage" {...a11yProps(2)} />
           </Tabs>
         </Box>
         <TabPanel value={value} index={0}>

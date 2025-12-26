@@ -5,13 +5,13 @@ import configManager from "./configManager.js";
 import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
 //======================================================
-const baseVideoDirectory = configManager.baseVideoDirectory;
+// Access baseVideoDirectory dynamically from configManager
 //======================================================
 
 async function process_picture(res, files, channelNumber, startTime, orderId) {
   let fileList = files.map((f) => f.filename);
   const outputPicturePath = path.join(
-    baseVideoDirectory,
+    configManager.baseVideoDirectory,
     "video_output",
     `${orderId}.jpg`
   );
@@ -223,7 +223,7 @@ async function process_jpeg_iot(res, files, channelNumber, startTime, orderId) {
   console.log("File list:", fileList);
 
   const outputPicturePath = path.join(
-    baseVideoDirectory,
+    configManager.baseVideoDirectory,
     "video_output",
     `${orderId}_iot.jpg`
   );
@@ -378,7 +378,7 @@ async function process_jpeg_live(res, rtspUrl, channelNumber, orderId) {
   console.log("Order ID:", orderId);
 
   const outputPicturePath = path.join(
-    baseVideoDirectory,
+    configManager.baseVideoDirectory,
     "video_output",
     `${orderId}_live.jpg`
   );

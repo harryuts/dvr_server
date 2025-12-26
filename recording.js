@@ -7,7 +7,7 @@ import storageManager from "./storage-management.js"; // Import the storage mana
 import configManager, { liveCaptureFrameRate } from "./configManager.js";
 
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
-const baseVideoDirectory = configManager.baseVideoDirectory;
+// Access baseVideoDirectory dynamically from configManager
 const MAX_STORAGE_PERCENTAGE = 90;
 const recordingStatus = {};
 
@@ -25,10 +25,16 @@ export const getRecordingStatus = (channel_number) => {
 };
 
 const channelLogs = {};
+const terminationLogs = {};
 const MAX_LOG_LINES = 100;
+const MAX_TERMINATION_LOGS = 50;
 
 export const getChannelLogs = (channel_number) => {
   return channelLogs[channel_number] || [];
+};
+
+export const getTerminationLogs = (channel_number) => {
+  return terminationLogs[channel_number] || [];
 };
 
 const addLog = (channel_number, message) => {
@@ -41,6 +47,16 @@ const addLog = (channel_number, message) => {
   channelLogs[channel_number].push(logLine);
   if (channelLogs[channel_number].length > MAX_LOG_LINES) {
     channelLogs[channel_number].shift();
+  }
+};
+
+const addTerminationLog = (channel_number, event) => {
+  if (!terminationLogs[channel_number]) {
+    terminationLogs[channel_number] = [];
+  }
+  terminationLogs[channel_number].unshift(event); // Add to beginning (newest first)
+  if (terminationLogs[channel_number].length > MAX_TERMINATION_LOGS) {
+    terminationLogs[channel_number].pop();
   }
 };
 
@@ -80,13 +96,13 @@ const startRecording = (
   });
 
   const channelDirectoryBase = path.join(
-    baseVideoDirectory,
+    configManager.baseVideoDirectory,
     `capture/${channel_number}`
   );
 
   const checkStorageAndCleanup = async () => {
     const usagePercentage = await storageManager.getDiskUsagePercentage(
-      baseVideoDirectory
+      configManager.baseVideoDirectory
     );
     if (usagePercentage > MAX_STORAGE_PERCENTAGE) {
       console.warn(
@@ -169,9 +185,28 @@ const startRecording = (
         return;
       }
 
-      const timeSinceLastChange = Date.now() - lastChangeTime;
+      let timeSinceLastChange = Date.now() - lastChangeTime;
       // Shinobi uses a cutoff factor, we'll use 1.5x segment duration or a minimum of 30s
       const threshold = Math.max(CAPTURE_SEGMENT_DURATION * 1000 * 1.5, 30000);
+
+      if (timeSinceLastChange > threshold) {
+        // Fallback: fs.watch can be unreliable on some mounts. Check the actual file mtime.
+        const currentFile = recordingStatus[channel_number]?.currentSegmentFile;
+        if (currentFile) {
+          try {
+            const stats = await fs.promises.stat(currentFile);
+            const timeSinceFileMod = Date.now() - stats.mtimeMs;
+            if (timeSinceFileMod < threshold) {
+              // File was actually modified recently, update lastChangeTime
+              lastChangeTime = stats.mtimeMs;
+              timeSinceLastChange = Date.now() - lastChangeTime;
+              console.log(`[${channel_number}] recovered from false zombie detection via fs.stat`);
+            }
+          } catch (e) {
+            // File not found or error, likely genuine zombie or starting up
+          }
+        }
+      }
 
       if (timeSinceLastChange > threshold) {
         console.warn(`[${channel_number}] ZOMBIE DETECTED! No file changes for ${(timeSinceLastChange / 1000).toFixed(1)}s. Restarting...`);
@@ -382,6 +417,14 @@ const startRecording = (
       console.log(
         `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}`
       );
+
+      addTerminationLog(channel_number, {
+        timestamp: new Date().toISOString(),
+        code: code,
+        signal: signal,
+        uptime: recordingStatus[channel_number]?.uptime || "N/A",
+        reason: code === 0 ? "Graceful Exit" : (code === 255 ? "Connection/Protocol Error" : "Unexpected/Crash")
+      });
 
       // Finalize the last video segment if it exists
       if (segmentFile && currentSegmentStartTime) {

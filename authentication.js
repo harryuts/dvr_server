@@ -3,6 +3,9 @@ import configManager from "./configManager.js";
 import bcrypt from "bcrypt";
 import { db } from "./dbFunctions.js";
 
+// Bypass SSL verification for internal self-signed certificates (e.g. auth provider)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 1 week in milliseconds
 
 // Function to generate a session ID
@@ -97,73 +100,130 @@ async function deleteSession(sessionId) {
   });
 }
 
-// --- Authentication Logic (PIN-based) ---
+// --- Authentication Logic (Authorization Approval-based) ---
 
-// API endpoint for login (PIN verification)
-export async function loginWithPin(req, res) {
-  const { pin } = req.body;
-  if (!pin) {
-    return res.status(400).json({ message: "PIN is required" });
-  }
+const AUTH_PROVIDER_URL = "https://www.shop.mammam.com.au:4433";
+const REQUESTER_APP_ID = "dvr_server";
+const REQUESTER_NAME = "DVR Server";
 
-  const storedPinHash = await configManager.getStoredPinHash();
-
-  if (!storedPinHash) {
-    return res.status(500).json({ message: "PIN configuration error" });
-  }
-
+// Proxy to get users from the auth provider
+export async function getRemoteUsers(req, res) {
   try {
-    const match = await bcrypt.compare(pin, storedPinHash);
-
-    if (match) {
-      const sessionInfo = await createSession();
-      res.json({
-        message: "Login successful",
-        token: `${sessionInfo.sessionId}`,
-        expiresIn: sessionInfo.expiresAt,
-      }); // Send expiresIn
-    } else {
-      res.status(401).json({ message: "Invalid PIN" });
+    let authAppId = "mammam";
+    try {
+      const configAppId = await configManager.getAuthAppId();
+      if (configAppId) authAppId = configAppId;
+    } catch (err) {
+      console.warn("[Auth] Failed to get authAppId from config, using default 'mammam'", err);
     }
+
+    const url = `${AUTH_PROVIDER_URL}/api/auth/users?appId=${authAppId}`;
+    console.log(`[Auth] calling ${url}`);
+
+    // Ensure fetch is available (Node 18+)
+    if (typeof fetch === "undefined") {
+      throw new Error("Global fetch is not defined. Node.js 18+ required.");
+    }
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Auth] Failed to fetch users: ${response.status} ${errorText}`);
+      return res.status(response.status).json({ message: `Failed to fetch users from provider: ${response.status}` });
+    }
+
+    const data = await response.json();
+    res.json(data); // Forward the response
   } catch (error) {
-    console.error("Error during PIN comparison:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("[Auth] Error fetching remote users:", error);
+    res.status(500).json({ message: "Internal server error fetching users: " + error.message });
   }
 }
 
-// API endpoint to change the PIN (requires authentication via session)
-export async function changePin(req, res) {
-  const { oldPin, newPin } = req.body;
-
-  if (!oldPin || !newPin) {
-    return res.status(400).json({ message: "Old and new PIN are required" });
-  }
-
-  if (!/^\d{6}$/.test(newPin)) {
-    return res
-      .status(400)
-      .json({ message: "New PIN must be a 6-digit number" });
-  }
-
-  const storedPinHash = await configManager.getStoredPinHash();
-
-  if (!storedPinHash) {
-    return res.status(500).json({ message: "PIN configuration error" });
+// Request authorization approval from user
+export async function requestAuthorization(req, res) {
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ message: "User ID is required" });
   }
 
   try {
-    const oldPinMatch = bcrypt.compare(oldPin, storedPinHash);
-    if (oldPinMatch) {
-      const saltRounds = 10;
-      const newHashedPin = await bcrypt.hash(newPin, saltRounds);
-      await configManager.updateStoredPinHash(newHashedPin);
-      res.json({ message: "PIN changed successfully" });
-    } else {
-      res.status(400).json({ message: "Invalid old PIN" });
+    const authAppId = await configManager.getAuthAppId();
+    console.log(`[Auth] Requesting authorization for user: ${userId}, targetApp: ${authAppId}`);
+
+    const payload = {
+      userId,
+      targetAppId: authAppId,
+      requesterAppId: REQUESTER_APP_ID,
+      requesterName: REQUESTER_NAME,
+      scopes: ["view_recordings", "live_feed"]
+    };
+
+    const response = await fetch(`${AUTH_PROVIDER_URL}/api/auth/authorize/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`[Auth] Authorization request failed: ${JSON.stringify(data)}`);
+      return res.status(response.status).json(data);
     }
+
+    console.log(`[Auth] Authorization request sent, token: ${data.authToken}`);
+    res.json({
+      success: true,
+      authToken: data.authToken,
+      expiresIn: data.expiresIn
+    });
   } catch (error) {
-    console.error("Error during PIN change:", error);
-    res.status(500).json({ message: "Failed to change PIN" });
+    console.error("[Auth] Error requesting authorization:", error);
+    res.status(500).json({ message: "Internal server error requesting authorization" });
+  }
+}
+
+// Poll for authorization status
+export async function checkAuthorizationStatus(req, res) {
+  const { token } = req.query;
+
+  if (!token) {
+    return res.status(400).json({ message: "Authorization token is required" });
+  }
+
+  try {
+    const response = await fetch(`${AUTH_PROVIDER_URL}/api/auth/authorize/status?token=${token}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`[Auth] Status check failed: ${JSON.stringify(data)}`);
+      return res.status(response.status).json(data);
+    }
+
+    // If approved, create a local session
+    if (data.success && data.data.status === 'approved') {
+      console.log("[Auth] Authorization approved! Creating local session...");
+      const sessionInfo = await createSession();
+
+      return res.json({
+        success: true,
+        status: 'approved',
+        token: sessionInfo.sessionId,
+        expiresIn: sessionInfo.expiresAt
+      });
+    }
+
+    // Return status for pending/denied/expired
+    res.json({
+      success: true,
+      status: data.data.status
+    });
+
+  } catch (error) {
+    console.error("[Auth] Error checking authorization status:", error);
+    res.status(500).json({ message: "Internal server error checking authorization status" });
   }
 }
 
@@ -233,8 +293,9 @@ export async function authenticateApiKey(req, res, next) {
 }
 
 export default {
-  loginWithPin,
-  changePin,
+  getRemoteUsers,
+  requestAuthorization,
+  checkAuthorizationStatus,
   authenticateSession,
   authenticateApiKey,
 };

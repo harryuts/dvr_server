@@ -10,7 +10,7 @@ import { getRecordingConfigurations } from "./configManager.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 //======================================================
-const baseVideoDirectory = configManager.baseVideoDirectory;
+// Access baseVideoDirectory dynamically from configManager
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
 const ERROR_LOG_FILE = path.join(__dirname, "video_processing_error.log");
 //======================================================
@@ -140,7 +140,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     outputVideoFile = `cctv_${orderId}.mp4`;
   }
   const outputVideoPath = path.join(
-    baseVideoDirectory,
+    configManager.baseVideoDirectory,
     "video_output",
     outputVideoFile
   );
@@ -176,7 +176,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     console.log(`[processDahuaVideo] Download complete: ${outputVideoFile} (${stats.size} bytes)`);
 
     if (storeEvidence) {
-      const destinationPath = path.join(baseVideoDirectory, "evidence", outputVideoFile);
+      const destinationPath = path.join(configManager.baseVideoDirectory, "evidence", outputVideoFile);
       fs.copyFile(outputVideoPath, destinationPath, (err) => {
         if (err) console.log("evidence file copy error");
         else console.log("File was copied successfully");
@@ -229,7 +229,7 @@ export async function process_video(
   if (files.length > 0 && parseInt(startTime) > parseInt(files[0].start_time)) {
     const trim_length = Math.floor((parseInt(startTime) - parseInt(files[0].start_time)) / 1000);
     if (trim_length > 0) {
-      const trimmedFirstFile = path.join(baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}.mp4`);
+      const trimmedFirstFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}.mp4`);
       trimmed_files.push(trimmedFirstFile);
       try {
         await trimVideo(fileList[0], trim_length, trimmedFirstFile, "start_trim");
@@ -250,7 +250,7 @@ export async function process_video(
     }
 
     if (trim_length > 0) {
-      const trimmedLastFile = path.join(baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}.mp4`);
+      const trimmedLastFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}.mp4`);
       trimmed_files.push(trimmedLastFile);
       try {
         await trimVideo(fileList[fileList.length - 1], trim_length, trimmedLastFile, "end_trim");
@@ -266,7 +266,7 @@ export async function process_video(
   if (storeEvidence && orderId) {
     outputVideoFile = `cctv_${orderId}.mp4`;
   }
-  const outputVideoPath = path.join(baseVideoDirectory, "video_output", outputVideoFile);
+  const outputVideoPath = path.join(configManager.baseVideoDirectory, "video_output", outputVideoFile);
 
   const validFiles = await Promise.all(fileList.map(async (file) => {
     try {
@@ -280,7 +280,7 @@ export async function process_video(
     return res.status(404).send("No video found for the specified time range.");
   }
 
-  const filelistPath = path.join(baseVideoDirectory, "video_output", `video_concat_list_${Date.now()}.txt`);
+  const filelistPath = path.join(configManager.baseVideoDirectory, "video_output", `video_concat_list_${Date.now()}.txt`);
   fs.writeFileSync(filelistPath, filteredFileList.map((f) => `file '${f}'`).join("\n"));
 
   const ffmpegCmd = spawn("ffmpeg", [
@@ -296,8 +296,8 @@ export async function process_video(
       return res.status(500).send("Error processing the video.");
     }
     if (storeEvidence) {
-      const sourcePath = path.join(baseVideoDirectory, "video_output", outputVideoFile);
-      const destinationPath = path.join(baseVideoDirectory, "evidence", outputVideoFile);
+      const sourcePath = path.join(configManager.baseVideoDirectory, "video_output", outputVideoFile);
+      const destinationPath = path.join(configManager.baseVideoDirectory, "evidence", outputVideoFile);
       fs.copyFile(sourcePath, destinationPath, (err) => {
         if (err) console.log("evidence file copy error");
       });
@@ -372,7 +372,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
 
     const recordingStatus = getRecordingStatus(channelNumber);
     if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && endTime > recordingStatus.currentSegmentStartTime) {
-      const partialOutputFile = path.join(baseVideoDirectory, "video_output", `partial_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+      const partialOutputFile = path.join(configManager.baseVideoDirectory, "video_output", `partial_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
       try {
         if (await fileExists(recordingStatus.currentSegmentFile)) {
           await extractPartialSegment(recordingStatus.currentSegmentFile, recordingStatus.currentSegmentStartTime, endTime, partialOutputFile);
@@ -390,7 +390,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       const firstFile = filesMetadata[0];
       const trim_length = Math.floor((parseInt(startTime) - parseInt(firstFile.start_time)) / 1000);
       if (trim_length > 0) {
-        const trimmedFirstFile = path.join(baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+        const trimmedFirstFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
         try {
           await trimVideo(fileList[0], trim_length, trimmedFirstFile, "start_trim");
           fileList[0] = trimmedFirstFile;
@@ -410,7 +410,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       }
 
       if (trim_length > 0) {
-        const trimmedLastFile = path.join(baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+        const trimmedLastFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
         try {
           await trimVideo(fileList[fileList.length - 1], trim_length, trimmedLastFile, "end_trim");
           fileList[fileList.length - 1] = trimmedLastFile;
@@ -419,7 +419,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       }
     }
 
-    const filelistPath = path.join(baseVideoDirectory, "video_output", `stream_concat_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
+    const filelistPath = path.join(configManager.baseVideoDirectory, "video_output", `stream_concat_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
     const validFiles = [];
     for (const f of fileList) {
       if (await fileExists(f) && (await fs.promises.stat(f)).size > 10000) validFiles.push(f);
@@ -431,17 +431,26 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
     res.writeHead(200, { "Content-Type": "video/mp4", "Cache-Control": "no-cache", "Connection": "keep-alive" });
 
     const ffmpeg = spawn("ffmpeg", [
-      "-f", "concat", "-safe", "0", "-i", filelistPath, "-c", "copy",
+      "-f", "concat", "-safe", "0", "-i", filelistPath, "-nostdin", "-c", "copy",
       "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "-"
     ]);
 
     ffmpeg.stdout.pipe(res);
-    ffmpeg.stderr.on('data', d => { });
+    ffmpeg.stderr.on('data', d => console.log(`[streamStandardVideo] FFmpeg Error: ${d}`));
     ffmpeg.on('close', (code) => {
       console.log(`[streamStandardVideo] Stream ended with code ${code}`);
       trimCleanupList.forEach(f => { fs.unlink(f, (err) => { }); });
     });
-    req.on('close', () => { console.log(`[streamStandardVideo] Client disconnected.`); ffmpeg.kill(); });
+
+    const killActiveStream = () => {
+      if (!ffmpeg.killed) {
+        console.log(`[streamStandardVideo] Client disconnected. Killing ffmpeg (PID: ${ffmpeg.pid}).`);
+        ffmpeg.kill('SIGKILL'); // Force kill
+      }
+    };
+
+    res.on('close', killActiveStream);
+    req.on('close', killActiveStream);
 
   } catch (err) {
     console.error("[streamStandardVideo] Error:", err);

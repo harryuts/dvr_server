@@ -1,14 +1,16 @@
 import express from "express";
 import {
-  loginWithPin,
-  changePin,
+  getRemoteUsers,
+  requestAuthorization,
+  checkAuthorizationStatus,
   authenticateSession,
 } from "../authentication.js";
 
 const router = express.Router();
 
-// API endpoint for login
-router.post("/login", loginWithPin);
-router.post("/change-pin", authenticateSession, changePin);
+// API endpoints for authorization approval flow
+router.get("/users", getRemoteUsers);
+router.post("/authorize/request", requestAuthorization);
+router.get("/authorize/status", checkAuthorizationStatus);
 
 export default router;
