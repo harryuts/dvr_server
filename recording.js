@@ -324,6 +324,12 @@ const startRecording = (
     ffmpegProcess = spawn("ffmpeg", args);
     spawnedProcesses.push(ffmpegProcess);
 
+    // Register with central FFmpeg Registry
+    // Dynamic import to avoid circular dependencies if any (though registry is standalone)
+    import("./ffmpegRegistry.js").then(({ registerFFmpegProcess }) => {
+      registerFFmpegProcess(ffmpegProcess.pid, 'schedule_recording', `ffmpeg ${args.join(' ')}`, ffmpegProcess);
+    }).catch(err => console.error("Failed to register ffmpeg process:", err));
+
     console.log(
       `[${channel_number}] ffmpeg process spawned with PID: ${ffmpegProcess.pid}`
     );
@@ -414,6 +420,12 @@ const startRecording = (
 
     ffmpegProcess.on("exit", (code, signal) => {
       clearTimeout(inactivityTimeout);
+
+      // Unregister from central registry
+      import("./ffmpegRegistry.js").then(({ unregisterFFmpegProcess }) => {
+        unregisterFFmpegProcess(ffmpegProcess.pid);
+      }).catch(err => console.error("Failed to unregister ffmpeg process:", err));
+
       console.log(
         `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}`
       );

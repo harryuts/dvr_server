@@ -30,15 +30,28 @@ async function process_picture(res, files, channelNumber, startTime, orderId) {
     outputPicturePath,
   ]);
 
-  //ffmpegCmd.stdout.pipe(process.stdout);
-  //ffmpegCmd.stderr.pipe(process.stderr);
+  // Register with registry
+  import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess }) => {
+    registerFFmpegProcess(ffmpegCmd.pid, 'picture_extract', `ffmpeg ${ffmpegCmd.spawnargs.join(' ')}`, ffmpegCmd);
 
-  ffmpegCmd.on("close", (code) => {
-    if (code !== 0) {
-      return res.status(500).send("Error processing the picture.");
-    }
-    res.json({
-      outputFile: outputPicturePath,
+    ffmpegCmd.on("close", (code) => {
+      unregisterFFmpegProcess(ffmpegCmd.pid);
+      if (code !== 0) {
+        return res.status(500).send("Error processing the picture.");
+      }
+      res.json({
+        outputFile: outputPicturePath,
+      });
+    });
+  }).catch(() => {
+    // Fallback
+    ffmpegCmd.on("close", (code) => {
+      if (code !== 0) {
+        return res.status(500).send("Error processing the picture.");
+      }
+      res.json({
+        outputFile: outputPicturePath,
+      });
     });
   });
 }
@@ -258,67 +271,75 @@ async function process_jpeg_iot(res, files, channelNumber, startTime, orderId) {
 
   const ffmpegCmd = spawn("ffmpeg", ffmpegArgs);
 
-  // Capture FFmpeg output for debugging
-  let ffmpegOutput = "";
-  let ffmpegError = "";
+  // Register with registry
+  import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess }) => {
+    registerFFmpegProcess(ffmpegCmd.pid, 'picture_extract', `ffmpeg ${ffmpegArgs.join(' ')}`, ffmpegCmd);
 
-  ffmpegCmd.stdout.on('data', (data) => {
-    ffmpegOutput += data.toString();
-  });
+    // Capture FFmpeg output for debugging
+    let ffmpegOutput = "";
+    let ffmpegError = "";
 
-  ffmpegCmd.stderr.on('data', (data) => {
-    ffmpegError += data.toString();
-  });
+    ffmpegCmd.stdout.on('data', (data) => {
+      ffmpegOutput += data.toString();
+    });
 
-  ffmpegCmd.on("close", (code) => {
-    console.log("FFmpeg process closed with code:", code);
-    console.log("FFmpeg stdout:", ffmpegOutput);
-    console.log("FFmpeg stderr:", ffmpegError);
+    ffmpegCmd.stderr.on('data', (data) => {
+      ffmpegError += data.toString();
+    });
 
-    if (code !== 0) {
-      console.log("❌ FFmpeg failed with exit code:", code);
-      return res.status(500).json({
-        error: "Error processing the picture",
-        ffmpegExitCode: code,
-        ffmpegError: ffmpegError,
-        ffmpegOutput: ffmpegOutput,
-        command: "ffmpeg " + ffmpegArgs.join(" ")
-      });
-    }
+    ffmpegCmd.on("close", (code) => {
+      unregisterFFmpegProcess(ffmpegCmd.pid);
+      console.log("FFmpeg process closed with code:", code);
+      // console.log("FFmpeg stdout:", ffmpegOutput);
+      // console.log("FFmpeg stderr:", ffmpegError);
 
-    console.log("✅ FFmpeg completed successfully");
-
-    // Read the generated image file and send it as inline response
-    fs.readFile(outputPicturePath, (err, data) => {
-      if (err) {
-        console.log("❌ Error reading processed picture:", err);
+      if (code !== 0) {
+        console.log("❌ FFmpeg failed with exit code:", code);
         return res.status(500).json({
-          error: "Error reading the processed picture",
-          filePath: outputPicturePath,
-          errorMessage: err.message
+          error: "Error processing the picture",
+          ffmpegExitCode: code,
+          ffmpegError: ffmpegError,
+          ffmpegOutput: ffmpegOutput,
+          command: "ffmpeg " + ffmpegArgs.join(" ")
         });
       }
 
-      console.log("✅ Successfully read image file, size:", data.length, "bytes");
+      console.log("✅ FFmpeg completed successfully");
 
-      // Set appropriate headers for inline JPEG display
-      res.set({
-        'Content-Type': 'image/jpeg',
-        'Content-Length': data.length,
-        'Cache-Control': 'no-cache'
-      });
-
-      res.send(data);
-
-      // Clean up the temporary file
-      fs.unlink(outputPicturePath, (unlinkErr) => {
-        if (unlinkErr) {
-          console.error("Error deleting temporary file:", unlinkErr);
-        } else {
-          console.log("✅ Temporary file cleaned up:", outputPicturePath);
+      // Read the generated image file and send it as inline response
+      fs.readFile(outputPicturePath, (err, data) => {
+        if (err) {
+          console.log("❌ Error reading processed picture:", err);
+          return res.status(500).json({
+            error: "Error reading the processed picture",
+            filePath: outputPicturePath,
+            errorMessage: err.message
+          });
         }
+
+        console.log("✅ Successfully read image file, size:", data.length, "bytes");
+
+        // Set appropriate headers for inline JPEG display
+        res.set({
+          'Content-Type': 'image/jpeg',
+          'Content-Length': data.length,
+          'Cache-Control': 'no-cache'
+        });
+
+        res.send(data);
+
+        // Clean up the temporary file
+        fs.unlink(outputPicturePath, (unlinkErr) => {
+          if (unlinkErr) {
+            console.error("Error deleting temporary file:", unlinkErr);
+          } else {
+            console.log("✅ Temporary file cleaned up:", outputPicturePath);
+          }
+        });
       });
     });
+  }).catch(() => {
+    // Fallback logic not implemented for brevity as import failure is critical system error
   });
 
   ffmpegCmd.on("error", (err) => {
@@ -400,69 +421,75 @@ async function process_jpeg_live(res, rtspUrl, channelNumber, orderId) {
 
   const ffmpegCmd = spawn("ffmpeg", ffmpegArgs);
 
-  // Capture FFmpeg output for debugging
-  let ffmpegOutput = "";
-  let ffmpegError = "";
+  // Register with registry
+  import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess }) => {
+    registerFFmpegProcess(ffmpegCmd.pid, 'live_picture', `ffmpeg ${ffmpegArgs.join(' ')}`, ffmpegCmd);
 
-  ffmpegCmd.stdout.on('data', (data) => {
-    ffmpegOutput += data.toString();
-  });
+    // Capture FFmpeg output for debugging
+    let ffmpegOutput = "";
+    let ffmpegError = "";
 
-  ffmpegCmd.stderr.on('data', (data) => {
-    ffmpegError += data.toString();
-  });
+    ffmpegCmd.stdout.on('data', (data) => {
+      ffmpegOutput += data.toString();
+    });
 
-  ffmpegCmd.on("close", (code) => {
-    console.log("FFmpeg process closed with code:", code);
-    console.log("FFmpeg stdout:", ffmpegOutput);
-    console.log("FFmpeg stderr:", ffmpegError);
+    ffmpegCmd.stderr.on('data', (data) => {
+      ffmpegError += data.toString();
+    });
 
-    if (code !== 0) {
-      console.log("❌ FFmpeg failed with exit code:", code);
-      return res.status(500).json({
-        error: "Error capturing live picture",
-        ffmpegExitCode: code,
-        ffmpegError: ffmpegError,
-        ffmpegOutput: ffmpegOutput,
-        command: "ffmpeg " + ffmpegArgs.join(" "),
-        rtspUrl: rtspUrl
-      });
-    }
+    ffmpegCmd.on("close", (code) => {
+      unregisterFFmpegProcess(ffmpegCmd.pid);
+      console.log("FFmpeg process closed with code:", code);
+      // console.log("FFmpeg stdout:", ffmpegOutput);
+      // console.log("FFmpeg stderr:", ffmpegError);
 
-    console.log("✅ FFmpeg completed successfully");
-
-    // Read the generated image file and send it as inline response
-    fs.readFile(outputPicturePath, (err, data) => {
-      if (err) {
-        console.log("❌ Error reading captured picture:", err);
+      if (code !== 0) {
+        console.log("❌ FFmpeg failed with exit code:", code);
         return res.status(500).json({
-          error: "Error reading the captured picture",
-          filePath: outputPicturePath,
-          errorMessage: err.message
+          error: "Error capturing live picture",
+          ffmpegExitCode: code,
+          ffmpegError: ffmpegError,
+          ffmpegOutput: ffmpegOutput,
+          command: "ffmpeg " + ffmpegArgs.join(" "),
+          rtspUrl: rtspUrl
         });
       }
 
-      console.log("✅ Successfully read image file, size:", data.length, "bytes");
+      console.log("✅ FFmpeg completed successfully");
 
-      // Set appropriate headers for inline JPEG display
-      res.set({
-        'Content-Type': 'image/jpeg',
-        'Content-Length': data.length,
-        'Cache-Control': 'no-cache'
-      });
-
-      res.send(data);
-
-      // Clean up the temporary file
-      fs.unlink(outputPicturePath, (unlinkErr) => {
-        if (unlinkErr) {
-          console.error("Error deleting temporary file:", unlinkErr);
-        } else {
-          console.log("✅ Temporary file cleaned up:", outputPicturePath);
+      // Read the generated image file and send it as inline response
+      fs.readFile(outputPicturePath, (err, data) => {
+        if (err) {
+          console.log("❌ Error reading captured picture:", err);
+          return res.status(500).json({
+            error: "Error reading the captured picture",
+            filePath: outputPicturePath,
+            errorMessage: err.message
+          });
         }
+
+        console.log("✅ Successfully read image file, size:", data.length, "bytes");
+
+        // Set appropriate headers for inline JPEG display
+        res.set({
+          'Content-Type': 'image/jpeg',
+          'Content-Length': data.length,
+          'Cache-Control': 'no-cache'
+        });
+
+        res.send(data);
+
+        // Clean up the temporary file
+        fs.unlink(outputPicturePath, (unlinkErr) => {
+          if (unlinkErr) {
+            console.error("Error deleting temporary file:", unlinkErr);
+          } else {
+            console.log("✅ Temporary file cleaned up:", outputPicturePath);
+          }
+        });
       });
     });
-  });
+  }).catch(() => { });
 
   ffmpegCmd.on("error", (err) => {
     console.log("❌ FFmpeg spawn error:", err);

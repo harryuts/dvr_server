@@ -16,28 +16,35 @@ import {
   Button,
   Tabs,
   Tab,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import StopIcon from "@mui/icons-material/Stop";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import VideocamIcon from "@mui/icons-material/Videocam";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { getApiBaseUrl } from "../utils/apiConfig";
 import { authenticatedFetch } from "../utils/api";
 
 interface RecordingStatus {
   channel: string;
-  pid: number;
+  pid: number | null;
   isRecording: boolean;
-  startTime: string;
+  startTime: string | null;
   uptime: string;
   respawnCount: number;
   currentFile: string;
+  type?: string; // Channel type (e.g., 'dahua', 'standard')
 }
 
 interface OtherProcess {
   pid: number;
   command: string;
+  context: string;
+  startTime: string;
+  uptime: string;
 }
 
 interface TerminationLog {
@@ -62,11 +69,26 @@ const RecordingStatusTab = () => {
   // Modal State
   const [openModal, setOpenModal] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [selectedChannelIsRecording, setSelectedChannelIsRecording] = useState(false);
+  const [selectedChannelType, setSelectedChannelType] = useState<string>('standard');
   const [activeTab, setActiveTab] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [terminationLogs, setTerminationLogs] = useState<TerminationLog[]>([]);
   const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  // New state for Unassociated Process Logs
+  const [selectedProcessPid, setSelectedProcessPid] = useState<number | null>(null);
+  const [processLogs, setProcessLogs] = useState<string[]>([]);
+  const processLogsEndRef = useRef<HTMLDivElement>(null);
+
+  // Control State
+  const [controlLoading, setControlLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'info';
+  }>({ open: false, message: '', severity: 'info' });
 
   useEffect(() => {
     const fetchRecordingStatus = async () => {
@@ -120,15 +142,45 @@ const RecordingStatusTab = () => {
     }
   };
 
+  const fetchProcessLogs = async (pid: number) => {
+    try {
+      const response = await authenticatedFetch(`${getApiBaseUrl()}/api/processes/logs/${pid}`);
+      if (response.ok) {
+        const data = await response.json();
+        setProcessLogs(data);
+      }
+    } catch (e) {
+      console.error(`Error fetching logs for process ${pid}`, e);
+    }
+  };
+
   const handleRowClick = (channel: string) => {
     setSelectedChannel(channel);
+    setSelectedProcessPid(null); // Clear process selection
     setOpenModal(true);
     setLogs([]); // Clear previous logs
     setTerminationLogs([]);
     setActiveTab(0); // Default to Live Logs
 
+    // Set the recording status and type for the selected channel
+    const channelStatus = recordingData.find(r => r.channel === channel);
+    setSelectedChannelIsRecording(channelStatus?.isRecording ?? false);
+    setSelectedChannelType(channelStatus?.type || 'standard');
+
     fetchLogs(channel);
     startPolling(channel, 0);
+  };
+
+  const handleProcessRowClick = (pid: number) => {
+    setSelectedProcessPid(pid);
+    setSelectedChannel(null); // Clear channel selection
+    setOpenModal(true);
+    setProcessLogs([]);
+
+    // Start polling for this process
+    if (logIntervalRef.current) clearInterval(logIntervalRef.current);
+    fetchProcessLogs(pid);
+    logIntervalRef.current = setInterval(() => fetchProcessLogs(pid), 2000);
   };
 
   const startPolling = (channel: string, tabIndex: number) => {
@@ -153,10 +205,89 @@ const RecordingStatusTab = () => {
   const handleCloseModal = () => {
     setOpenModal(false);
     setSelectedChannel(null);
+    setSelectedProcessPid(null);
     if (logIntervalRef.current) {
       clearInterval(logIntervalRef.current);
       logIntervalRef.current = null;
     }
+  };
+
+  const handleStartRecording = async () => {
+    if (!selectedChannel) return;
+
+    setControlLoading(true);
+    try {
+      const response = await authenticatedFetch(
+        `${getApiBaseUrl()}/api/channels/start/${selectedChannel}`,
+        "POST"
+      );
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setSnackbar({
+          open: true,
+          message: data.message || 'Recording started successfully',
+          severity: 'success'
+        });
+        setSelectedChannelIsRecording(true);
+      } else {
+        setSnackbar({
+          open: true,
+          message: data.message || 'Failed to start recording',
+          severity: 'error'
+        });
+      }
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error starting recording',
+        severity: 'error'
+      });
+    } finally {
+      setControlLoading(false);
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (!selectedChannel) return;
+
+    setControlLoading(true);
+    try {
+      const response = await authenticatedFetch(
+        `${getApiBaseUrl()}/api/channels/stop/${selectedChannel}`,
+        "POST"
+      );
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setSnackbar({
+          open: true,
+          message: data.message || 'Recording stopped successfully',
+          severity: 'success'
+        });
+        setSelectedChannelIsRecording(false);
+      } else {
+        setSnackbar({
+          open: true,
+          message: data.message || 'Failed to stop recording',
+          severity: 'error'
+        });
+      }
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error stopping recording',
+        severity: 'error'
+      });
+    } finally {
+      setControlLoading(false);
+    }
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
   };
 
   // Auto-scroll to bottom of logs
@@ -198,13 +329,25 @@ const RecordingStatusTab = () => {
                   </TableCell>
                   <TableCell align="center">
                     {status.isRecording ? (
-                      <FiberManualRecordIcon color="error" />
+                      <Box
+                        sx={{
+                          display: 'inline-flex',
+                          '@keyframes pulse': {
+                            '0%': { transform: 'scale(1)', opacity: 1 },
+                            '50%': { transform: 'scale(1.3)', opacity: 0.7 },
+                            '100%': { transform: 'scale(1)', opacity: 1 },
+                          },
+                          animation: 'pulse 1.5s ease-in-out infinite',
+                        }}
+                      >
+                        <FiberManualRecordIcon color="error" />
+                      </Box>
                     ) : (
                       <StopIcon color="success" />
                     )}
                   </TableCell>
                   <TableCell align="left">
-                    {new Date(status.startTime).toLocaleString()}
+                    {status.startTime ? new Date(status.startTime).toLocaleString() : '-'}
                   </TableCell>
                   <TableCell align="left">
                     <AccessTimeIcon sx={{ mr: 1 }} /> {status.uptime}
@@ -237,14 +380,37 @@ const RecordingStatusTab = () => {
             <Table aria-label="other ffmpeg processes table">
               <TableHead>
                 <TableRow>
-                  <TableCell width="10%">PID</TableCell>
-                  <TableCell width="90%">Command</TableCell>
+                  <TableCell width="8%">PID</TableCell>
+                  <TableCell width="12%">Context</TableCell>
+                  <TableCell width="18%">Start Time</TableCell>
+                  <TableCell width="12%">Uptime</TableCell>
+                  <TableCell width="50%">Command</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {otherProcesses.map((proc) => (
-                  <TableRow key={proc.pid}>
+                  <TableRow
+                    key={proc.pid}
+                    hover
+                    onClick={() => handleProcessRowClick(proc.pid)}
+                    sx={{ cursor: 'pointer' }}
+                  >
                     <TableCell>{proc.pid}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{
+                        bgcolor: 'action.hover',
+                        px: 1,
+                        py: 0.5,
+                        borderRadius: 1,
+                        display: 'inline-block',
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold'
+                      }}>
+                        {proc.context || 'Unknown'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{proc.startTime ? new Date(proc.startTime).toLocaleString() : '-'}</TableCell>
+                    <TableCell>{proc.uptime || '-'}</TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
                       {proc.command}
                     </TableCell>
@@ -269,16 +435,21 @@ const RecordingStatusTab = () => {
         aria-labelledby="log-dialog-title"
       >
         <DialogTitle id="log-dialog-title">
-          Channel Status - {selectedChannel}
+          {selectedChannel ? `Channel Status - ${selectedChannel}` : `Process Logs - PID ${selectedProcessPid}`}
         </DialogTitle>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={activeTab} onChange={handleTabChange} aria-label="log tabs">
-            <Tab label="Live Logs" />
-            <Tab label="Termination Events" />
-          </Tabs>
-        </Box>
+
+        {selectedChannel && (
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs value={activeTab} onChange={handleTabChange} aria-label="log tabs">
+              <Tab label="Live Logs" />
+              <Tab label="Termination Events" />
+            </Tabs>
+          </Box>
+        )}
+
         <DialogContent dividers>
-          {activeTab === 0 && (
+          {/* Channel Live Logs */}
+          {selectedChannel && activeTab === 0 && (
             <Box sx={{
               bgcolor: '#000',
               color: '#0f0',
@@ -299,7 +470,29 @@ const RecordingStatusTab = () => {
             </Box>
           )}
 
-          {activeTab === 1 && (
+          {/* Process Logs (Read Only) */}
+          {selectedProcessPid && (
+            <Box sx={{
+              bgcolor: '#000',
+              color: '#0f0', // Maybe different color for process logs? sticking to green for now
+              p: 2,
+              borderRadius: 1,
+              fontFamily: 'monospace',
+              maxHeight: '60vh',
+              overflowY: 'auto'
+            }}>
+              {processLogs.length === 0 ? (
+                <Typography variant="body2" color="gray">No logs available...</Typography>
+              ) : (
+                processLogs.map((line, index) => (
+                  <div key={index}>{line}</div>
+                ))
+              )}
+              <div ref={processLogsEndRef} />
+            </Box>
+          )}
+
+          {selectedChannel && activeTab === 1 && (
             <Box sx={{ maxHeight: '60vh', overflowY: 'auto' }}>
               {terminationLogs.length === 0 ? (
                 <Typography sx={{ p: 2 }} color="text.secondary">No termination events recorded.</Typography>
@@ -333,11 +526,46 @@ const RecordingStatusTab = () => {
           )}
         </DialogContent>
         <DialogActions>
+          {selectedChannel && selectedChannelType !== 'dahua' && (
+            selectedChannelIsRecording ? (
+              <Button
+                onClick={handleStopRecording}
+                color="error"
+                variant="contained"
+                startIcon={<StopIcon />}
+                disabled={controlLoading}
+              >
+                {controlLoading ? 'Stopping...' : 'Stop Recording'}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleStartRecording}
+                color="success"
+                variant="contained"
+                startIcon={<PlayArrowIcon />}
+                disabled={controlLoading}
+              >
+                {controlLoading ? 'Starting...' : 'Start Recording'}
+              </Button>
+            )
+          )}
           <Button onClick={handleCloseModal} color="primary">
             Close
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for user feedback */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

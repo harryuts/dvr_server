@@ -85,10 +85,17 @@ const startApiServer = (db, spawnedProcesses) => {
       const recordingStatusCallback = [];
       const knownPids = new Set();
 
-      // 1. Get Known Recording Status
-      for (const channel in recordingControls) {
-        if (recordingControls.hasOwnProperty(channel)) {
-          const status = recordingControls[channel].getStatus();
+      // Get all channel configurations
+      const channelConfigs = await configManager.getRecordingConfigurations();
+
+      // Build status for all channels
+      for (const channelConfig of channelConfigs) {
+        const channel = channelConfig.channel;
+        const recordingControl = recordingControls[channel];
+
+        if (recordingControl) {
+          // Channel is currently recording
+          const status = recordingControl.getStatus();
           if (status.pid) knownPids.add(String(status.pid));
           recordingStatusCallback.push({
             channel: channel,
@@ -98,38 +105,41 @@ const startApiServer = (db, spawnedProcesses) => {
             uptime: status.uptime,
             respawnCount: status.respawnCount,
             currentFile: status.currentSegmentFile,
+            type: channelConfig.type || 'standard',
+          });
+        } else {
+          // Channel is not currently recording
+          recordingStatusCallback.push({
+            channel: channel,
+            pid: null,
+            isRecording: false,
+            startTime: null,
+            uptime: 'N/A',
+            respawnCount: 0,
+            currentFile: 'Not Recording',
+            type: channelConfig.type || 'standard',
           });
         }
       }
 
-      // 2. Get All FFmpeg Processes via System Command
-      const { exec } = await import("child_process");
-      const util = await import("util");
-      const execPromise = util.promisify(exec);
-
+      // 2. Get All FFmpeg Processes via Registry
       let otherProcesses = [];
       try {
-        const { stdout } = await execPromise("ps -eo pid,args");
-        const lines = stdout.split("\n");
-        // Skip header
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
+        const { getAllFFmpegProcesses } = await import("./ffmpegRegistry.js");
+        const allTrackedProcesses = getAllFFmpegProcesses();
 
-          // Split by first space to get PID
-          const parts = line.split(/\s+/);
-          const pid = parts[0];
-          const command = lines[i].substring(lines[i].indexOf(pid) + pid.length).trim();
-
-          if (command.includes("ffmpeg") && !knownPids.has(pid)) {
-            otherProcesses.push({
-              pid: parseInt(pid),
-              command: command
-            });
-          }
-        }
+        // Filter out processes that are already accounted for in knownPids (recording channels)
+        otherProcesses = allTrackedProcesses
+          .filter(proc => !knownPids.has(String(proc.pid)))
+          .map(proc => ({
+            pid: proc.pid,
+            context: proc.context,
+            startTime: proc.startTimeISO,
+            uptime: proc.uptime,
+            command: proc.command
+          }));
       } catch (e) {
-        console.error("Error fetching system processes:", e);
+        console.error("Error fetching registry processes:", e);
       }
 
       res.json({
@@ -139,6 +149,18 @@ const startApiServer = (db, spawnedProcesses) => {
     } catch (error) {
       console.error(error.message);
       res.status(500).json({ error: "Failed to get the query" });
+    }
+  });
+
+  // New endpoint to get logs for a specific process
+  app.get("/api/processes/logs/:pid", authenticateSession, async (req, res) => {
+    try {
+      const { getProcessLogs } = await import("./ffmpegRegistry.js");
+      const logs = getProcessLogs(req.params.pid);
+      res.json(logs);
+    } catch (error) {
+      console.error(`Error fetching logs for process ${req.params.pid}:`, error);
+      res.status(500).json({ error: "Failed to fetch logs" });
     }
   });
 

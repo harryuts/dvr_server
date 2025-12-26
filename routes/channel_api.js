@@ -198,4 +198,75 @@ router.get("/timeframe", authenticateSession, async (req, res) => {
   }
 });
 
+// POST endpoint to start recording for a specific channel
+router.post("/start/:channel", authenticateSession, async (req, res) => {
+  const channel = req.params.channel;
+  try {
+    // Get channel configuration
+    const configs = await configManager.getRecordingConfigurations();
+    const channelConfig = configs.find(c => c.channel === channel);
+
+    if (!channelConfig) {
+      return res.status(404).json({
+        success: false,
+        message: `Channel "${channel}" not found in configuration`
+      });
+    }
+
+    // Start recording
+    const { startRecordingForChannel } = await import("../scheduleRecording.js");
+    const result = await startRecordingForChannel(
+      req.app.locals.db,
+      req.app.locals.spawnedProcesses,
+      channelConfig
+    );
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: `Recording started for channel "${channel}"`
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: `Failed to start recording for channel "${channel}"`,
+        reason: result.reason
+      });
+    }
+  } catch (error) {
+    console.error(`Error starting recording for channel ${channel}:`, error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to start recording"
+    });
+  }
+});
+
+// POST endpoint to stop recording for a specific channel
+router.post("/stop/:channel", authenticateSession, async (req, res) => {
+  const channel = req.params.channel;
+  try {
+    const { stopRecordingForChannel } = await import("../scheduleRecording.js");
+    const result = await stopRecordingForChannel(channel);
+
+    if (result) {
+      res.json({
+        success: true,
+        message: `Recording stopped for channel "${channel}"`
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: `No active recording found for channel "${channel}"`
+      });
+    }
+  } catch (error) {
+    console.error(`Error stopping recording for channel ${channel}:`, error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to stop recording"
+    });
+  }
+});
+
 export default router;
