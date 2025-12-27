@@ -2,9 +2,11 @@ import express from "express";
 import { authenticateSession } from "../authentication.js";
 import { db } from "../dbFunctions.js";
 import crypto from "crypto";
-import configManager from "../configManager.js";
+import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "../configManager.js";
 import os from "os";
 import si from "systeminformation";
+import fs from "fs";
+import path from "path";
 
 const router = express.Router();
 
@@ -397,6 +399,52 @@ router.put("/system-config", authenticateSession, async (req, res) => {
   } catch (error) {
     console.error("Error updating system config:", error);
     res.status(500).json({ message: "Failed to update system configuration", error: error.message });
+  }
+});
+
+// List files in a directory (video_output or evidence)
+router.get("/directory-files", authenticateSession, async (req, res) => {
+  try {
+    const { directory } = req.query; // 'video_output' or 'evidence'
+    
+    if (!directory || (directory !== VIDEO_OUTPUT_DIR && directory !== EVIDENCE_DIR)) {
+      return res.status(400).json({ 
+        error: "Invalid directory. Must be 'video_output' or 'evidence'" 
+      });
+    }
+
+    const baseDir = await configManager.getBaseVideoDirectory();
+    const dirPath = path.join(baseDir, directory);
+
+    // Check if directory exists
+    if (!fs.existsSync(dirPath)) {
+      return res.status(404).json({ error: "Directory not found" });
+    }
+
+    // Read directory contents
+    const files = fs.readdirSync(dirPath);
+    const fileList = files.map((filename) => {
+      const filePath = path.join(dirPath, filename);
+      const stats = fs.statSync(filePath);
+      return {
+        filename,
+        size: stats.size,
+        modified: stats.mtime.getTime(),
+        isDirectory: stats.isDirectory(),
+      };
+    });
+
+    // Sort by modified date (newest first)
+    fileList.sort((a, b) => b.modified - a.modified);
+
+    res.json({
+      directory,
+      path: dirPath,
+      files: fileList,
+    });
+  } catch (error) {
+    console.error("Error listing directory files:", error);
+    res.status(500).json({ error: "Failed to list directory files", message: error.message });
   }
 });
 

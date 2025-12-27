@@ -7,11 +7,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PIN = "123456";
 const configFilePath = path.join(__dirname, "config.json"); // Path to your config file
-const segmentDuration = 900; // 15 minutes in seconds
+const segmentDuration = 120; // 2 minutes in seconds
 let baseVideoDirectory = "/mnt/m2nvme"; // Default value, will be loaded from config
 let liveCaptureFrameRate = 1; // Default: 1 frame per second
 let maxStoragePercent = 80; // Default: 80%
 let authAppId = "mammam"; // Default: mammam
+
+// Directory name constants
+const VIDEO_OUTPUT_DIR = "video_output";
+const EVIDENCE_DIR = "evidence";
 
 async function readConfig() {
   try {
@@ -203,12 +207,14 @@ export async function updateBaseVideoDirectory(newDirectory) {
   return true;
 }
 
-export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent, readConfig, writeConfig };
+export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent, VIDEO_OUTPUT_DIR, EVIDENCE_DIR, readConfig, writeConfig };
 export default {
   segmentDuration,
   baseVideoDirectory,
   liveCaptureFrameRate,
   maxStoragePercent,
+  VIDEO_OUTPUT_DIR,
+  EVIDENCE_DIR,
   getStoredPinHash,
   updateStoredPinHash,
   getSchedule,

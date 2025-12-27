@@ -14,6 +14,7 @@ import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import WifiTetheringIcon from "@mui/icons-material/WifiTethering";
 import SettingsIcon from "@mui/icons-material/Settings";
 import VideocamIcon from "@mui/icons-material/Videocam";
+import IntegrationInstructionsIcon from "@mui/icons-material/IntegrationInstructions";
 import { useNavigate, useLocation } from "react-router-dom";
 import SystemStatsWidget from "./SystemStatsWidget";
 import { authenticatedFetch } from "../utils/api";
@@ -29,7 +30,7 @@ const SideNavigationBar: React.FC = () => {
     // Sync the active tab with the current route
     useEffect(() => {
         const path = location.pathname.substring(1); // Remove leading slash
-        if (path === "status" || path === "playback" || path === "settings" || path === "live") {
+        if (path === "status" || path === "playback" || path === "settings" || path === "live" || path === "pos-integration") {
             setActivePath(path);
         }
     }, [location.pathname]);
@@ -75,6 +76,7 @@ const SideNavigationBar: React.FC = () => {
         { label: "Playback", path: "playback", icon: <PlayCircleOutlineIcon /> },
         { label: "Status", path: "status", icon: <WifiTetheringIcon /> },
         { label: "Settings", path: "settings", icon: <SettingsIcon /> },
+        { label: "POS Integration", path: "pos-integration", icon: <IntegrationInstructionsIcon /> },
     ];
 
     return (

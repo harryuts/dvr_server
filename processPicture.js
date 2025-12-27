@@ -1,7 +1,7 @@
 import fs from "fs";
 import { spawn } from "child_process";
 import path from "path";
-import configManager from "./configManager.js";
+import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
 //======================================================
@@ -12,7 +12,7 @@ async function process_picture(res, files, channelNumber, startTime, orderId) {
   let fileList = files.map((f) => f.filename);
   const outputPicturePath = path.join(
     configManager.baseVideoDirectory,
-    "video_output",
+    VIDEO_OUTPUT_DIR,
     `${orderId}.jpg`
   );
   let picturePosition = parseInt(
@@ -237,7 +237,7 @@ async function process_jpeg_iot(res, files, channelNumber, startTime, orderId) {
 
   const outputPicturePath = path.join(
     configManager.baseVideoDirectory,
-    "video_output",
+    VIDEO_OUTPUT_DIR,
     `${orderId}_iot.jpg`
   );
   console.log("Output path:", outputPicturePath);
@@ -400,7 +400,7 @@ async function process_jpeg_live(res, rtspUrl, channelNumber, orderId) {
 
   const outputPicturePath = path.join(
     configManager.baseVideoDirectory,
-    "video_output",
+    VIDEO_OUTPUT_DIR,
     `${orderId}_live.jpg`
   );
   console.log("Output path:", outputPicturePath);

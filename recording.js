@@ -78,6 +78,7 @@ const startRecording = (
   let isRecording = true;
   let manualStop = false;
   let ffmpegProcess = null;
+  let ffmpegProcessPid = null; // Store PID separately to avoid null reference issues
   let inactivityTimeout;
   const INACTIVITY_THRESHOLD = 90 * 1000;
   const KILL_TIMEOUT = 3000;
@@ -305,17 +306,27 @@ const startRecording = (
     console.log(`[${channel_number}] Spawning FFmpeg with args:`, args.join(" "));
 
     if (!isDahua) {
-      // Standard Recording Args
+      // Standard Recording Args - Include audio if available
+      // Optimized for SSD: faster writes, immediate flushing, multi-threaded
+      const cpuCount = os.cpus().length;
       args.push(
-        "-map", "0:v",
-        "-c:v", "copy",
-        "-an",
+        "-threads", cpuCount.toString(), // Use all CPU cores for processing
+        "-map", "0:v", // Map video stream
+        "-map", "0:a?", // Map audio stream if available (optional)
+        "-c:v", "copy", // Copy video codec (no re-encoding = fastest)
+        "-c:a", "aac", // Encode audio to AAC for compatibility
+        "-b:a", "128k", // Audio bitrate
+        "-ar", "44100", // Sample rate
+        "-ac", "2", // Convert to stereo if needed
+        "-flush_packets", "1", // Flush packets immediately (optimized for SSD)
+        "-async_depth", "1", // Reduce async depth for faster writes
         "-f", "segment",
         "-segment_time", CAPTURE_SEGMENT_DURATION.toString(),
         "-segment_atclocktime", "1",
         "-strftime", "1",
         "-reset_timestamps", "1",
-        "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
+        "-write_index", "0", // Disable index writing during recording (faster, index created on close)
+        "-segment_format_options", "movflags=+frag_keyframe+faststart+empty_moov", // Optimized for SSD: faststart + empty_moov for faster writes
         "-y", segmentFileTemplate
       );
     }
@@ -323,15 +334,18 @@ const startRecording = (
     // Live JPEG output removed to prevent high CPU usage (switched to On-Demand strategy)
     ffmpegProcess = spawn("ffmpeg", args);
     spawnedProcesses.push(ffmpegProcess);
+    
+    // Store PID early to avoid null reference issues
+    ffmpegProcessPid = ffmpegProcess.pid;
 
     // Register with central FFmpeg Registry
     // Dynamic import to avoid circular dependencies if any (though registry is standalone)
     import("./ffmpegRegistry.js").then(({ registerFFmpegProcess }) => {
-      registerFFmpegProcess(ffmpegProcess.pid, 'schedule_recording', `ffmpeg ${args.join(' ')}`, ffmpegProcess);
+      registerFFmpegProcess(ffmpegProcessPid, 'schedule_recording', `ffmpeg ${args.join(' ')}`, ffmpegProcess);
     }).catch(err => console.error("Failed to register ffmpeg process:", err));
 
     console.log(
-      `[${channel_number}] ffmpeg process spawned with PID: ${ffmpegProcess.pid}`
+      `[${channel_number}] ffmpeg process spawned with PID: ${ffmpegProcessPid}`
     );
     updateRecordingStatus(channel_number, {
       pid: ffmpegProcess.pid,
@@ -421,13 +435,20 @@ const startRecording = (
     ffmpegProcess.on("exit", (code, signal) => {
       clearTimeout(inactivityTimeout);
 
+      // Get PID safely - use stored PID or try to get from process
+      const pidToUnregister = ffmpegProcessPid || (ffmpegProcess && ffmpegProcess.pid) || null;
+
       // Unregister from central registry
-      import("./ffmpegRegistry.js").then(({ unregisterFFmpegProcess }) => {
-        unregisterFFmpegProcess(ffmpegProcess.pid);
-      }).catch(err => console.error("Failed to unregister ffmpeg process:", err));
+      if (pidToUnregister) {
+        import("./ffmpegRegistry.js").then(({ unregisterFFmpegProcess }) => {
+          unregisterFFmpegProcess(pidToUnregister);
+        }).catch(err => console.error("Failed to unregister ffmpeg process:", err));
+      } else {
+        console.warn(`[${channel_number}] Cannot unregister: PID not available (process may have been cleared)`);
+      }
 
       console.log(
-        `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}`
+        `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}${pidToUnregister ? ` (PID: ${pidToUnregister})` : ''}`
       );
 
       addTerminationLog(channel_number, {
@@ -464,13 +485,15 @@ const startRecording = (
 
       if (manualStop) {
         console.log(`[${channel_number}] Recording stopped manually.`);
-        spawnedProcesses = spawnedProcesses.filter(
-          (child) => child.pid !== ffmpegProcess.pid
-        );
+        if (pidToUnregister) {
+          spawnedProcesses = spawnedProcesses.filter(
+            (child) => child.pid !== pidToUnregister
+          );
+        }
 
         // Prevent overwriting status if a new process has already started
         const currentStatus = recordingStatus[channel_number];
-        if (currentStatus && currentStatus.pid === ffmpegProcess.pid) {
+        if (currentStatus && pidToUnregister && currentStatus.pid === pidToUnregister) {
           updateRecordingStatus(channel_number, {
             pid: null,
             currentSegmentFile: null,
@@ -479,16 +502,19 @@ const startRecording = (
         }
 
         ffmpegProcess = null;
+        ffmpegProcessPid = null; // Clear PID reference
         return;
       }
 
-      spawnedProcesses = spawnedProcesses.filter(
-        (child) => child.pid !== ffmpegProcess.pid
-      );
+      if (pidToUnregister) {
+        spawnedProcesses = spawnedProcesses.filter(
+          (child) => child.pid !== pidToUnregister
+        );
+      }
 
       // Only update status if this process is the current one
       const currentStatus = recordingStatus[channel_number];
-      if (currentStatus && currentStatus.pid === ffmpegProcess.pid) {
+      if (currentStatus && pidToUnregister && currentStatus.pid === pidToUnregister) {
         updateRecordingStatus(channel_number, {
           pid: null,
           currentSegmentFile: null,
@@ -498,6 +524,7 @@ const startRecording = (
       if (manualStop) {
         console.log(`[${channel_number}] Recording stopped manually.`);
         ffmpegProcess = null;
+        ffmpegProcessPid = null; // Clear PID reference
 
         if (currentStatus && currentStatus.pid === 0) { // PID might be already null if filtered above? No, passed PID.
           // Actually, we captured ffmpegProcess variable in closure.
@@ -560,6 +587,7 @@ const startRecording = (
         `[${channel_number}] Attempting to restart ffmpeg in 5 seconds...`
       );
       ffmpegProcess = null;
+      ffmpegProcessPid = null; // Clear PID reference
       updateRecordingStatus(channel_number, {
         pid: null,
         currentSegmentFile: null,
@@ -623,6 +651,18 @@ const startRecording = (
       console.log(`[${channel_number}] Manual stop requested.`);
       manualStop = true;
       isRecording = false;
+      
+      // Unregister from registry before killing
+      if (ffmpegProcessPid) {
+        try {
+          const { unregisterFFmpegProcess } = await import("./ffmpegRegistry.js");
+          unregisterFFmpegProcess(ffmpegProcessPid);
+          console.log(`[${channel_number}] Unregistered FFmpeg process (PID: ${ffmpegProcessPid}) from registry`);
+        } catch (err) {
+          console.error(`[${channel_number}] Failed to unregister FFmpeg process:`, err);
+        }
+      }
+      
       if (ffmpegProcess) {
         try {
           ffmpegProcess.stdin.write("q");
@@ -639,6 +679,9 @@ const startRecording = (
           // The stdin 'q' should trigger exit handler.
         }
       }
+      
+      // Clear PID reference
+      ffmpegProcessPid = null;
     }
   };
 };

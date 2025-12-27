@@ -14,6 +14,39 @@ let db = new sqlite3.Database(
     }
     console.log("Connected to the SQLite database.");
 
+    // Optimize SQLite for SSD performance
+    // WAL mode: Faster concurrent writes, better for SSD
+    db.run("PRAGMA journal_mode = WAL;", (err) => {
+      if (err) {
+        console.warn("Failed to set WAL mode:", err.message);
+      } else {
+        console.log("SQLite WAL mode enabled (optimized for SSD)");
+      }
+    });
+
+    // Synchronous mode: NORMAL is safe and faster than FULL for SSD
+    // OFF is fastest but less safe (acceptable for video recording where we can recover)
+    db.run("PRAGMA synchronous = NORMAL;", (err) => {
+      if (err) {
+        console.warn("Failed to set synchronous mode:", err.message);
+      }
+    });
+
+    // Increase cache size for better performance (default is 2000 pages, ~8MB)
+    // Set to 10000 pages (~40MB) for better SSD performance
+    db.run("PRAGMA cache_size = -10000;", (err) => {
+      if (err) {
+        console.warn("Failed to set cache size:", err.message);
+      }
+    });
+
+    // Optimize for faster writes
+    db.run("PRAGMA temp_store = MEMORY;", (err) => {
+      if (err) {
+        console.warn("Failed to set temp_store:", err.message);
+      }
+    });
+
     // Create the table and only proceed once it's created
     db.run(
       "CREATE TABLE IF NOT EXISTS video_segments (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, channel_number TEXT, start_time INTEGER, end_time INTEGER, start_time_str TEXT, end_time_str TEXT)",
@@ -21,6 +54,34 @@ let db = new sqlite3.Database(
         if (createErr) {
           return console.error(createErr.message);
         }
+        // Create indexes for faster queries (optimized for SSD)
+        // Index on channel_number for filtering by channel
+        db.run(
+          "CREATE INDEX IF NOT EXISTS idx_channel_number ON video_segments(channel_number);",
+          (idxErr) => {
+            if (idxErr) {
+              console.warn("Failed to create channel_number index:", idxErr.message);
+            }
+          }
+        );
+        // Composite index on channel_number and time range for faster segment lookups
+        db.run(
+          "CREATE INDEX IF NOT EXISTS idx_channel_time ON video_segments(channel_number, start_time, end_time);",
+          (idxErr) => {
+            if (idxErr) {
+              console.warn("Failed to create channel_time index:", idxErr.message);
+            }
+          }
+        );
+        // Index on start_time for date-based queries
+        db.run(
+          "CREATE INDEX IF NOT EXISTS idx_start_time ON video_segments(start_time);",
+          (idxErr) => {
+            if (idxErr) {
+              console.warn("Failed to create start_time index:", idxErr.message);
+            }
+          }
+        );
       }
     );
     // Create the sessions table if it doesn't exist
@@ -131,6 +192,30 @@ export function getVideoSegmentsForTimeframe(channel, startTime, endTime) {
       } else {
         // Map to format that might be easier for frontend if needed, or return raw
         resolve(rows);
+      }
+    });
+  });
+}
+
+// Function to get distinct dates (YYYY-MM-DD) that have recordings for a channel
+export function getDatesWithRecordings(channel) {
+  return new Promise((resolve, reject) => {
+    // Get all segments for the channel and extract unique dates
+    const query = `
+      SELECT DISTINCT 
+        date(start_time / 1000, 'unixepoch', 'localtime') as date_str
+      FROM video_segments
+      WHERE channel_number = ?
+      ORDER BY date_str DESC;
+    `;
+
+    db.all(query, [channel], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        // Return array of date strings in YYYY-MM-DD format
+        const dates = rows.map(row => row.date_str);
+        resolve(dates);
       }
     });
   });

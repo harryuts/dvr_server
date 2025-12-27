@@ -33,7 +33,8 @@ export const authenticatedFetch = async (
   url: string,
   method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
   body: unknown = null,
-  customHeaders: Record<string, string> = {}
+  customHeaders: Record<string, string> = {},
+  signal?: AbortSignal
 ) => {
   const authData = getAuthData();
   const headers: HeadersInit = {
@@ -49,6 +50,7 @@ export const authenticatedFetch = async (
     method,
     headers,
     body: body ? JSON.stringify(body) : null,
+    signal, // Add abort signal support
   };
 
   const response = await fetch(`${url}`, config);

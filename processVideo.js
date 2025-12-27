@@ -1,7 +1,7 @@
 import fs from "fs";
 import { spawn } from "child_process";
 import path from "path";
-import configManager from "./configManager.js";
+import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
 import { fileURLToPath } from "url";
@@ -170,7 +170,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
   }
   const outputVideoPath = path.join(
     configManager.baseVideoDirectory,
-    "video_output",
+    VIDEO_OUTPUT_DIR,
     outputVideoFile
   );
 
@@ -218,7 +218,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     console.log(`[processDahuaVideo] Download complete: ${outputVideoFile} (${stats.size} bytes)`);
 
     if (storeEvidence) {
-      const destinationPath = path.join(configManager.baseVideoDirectory, "evidence", outputVideoFile);
+      const destinationPath = path.join(configManager.baseVideoDirectory, EVIDENCE_DIR, outputVideoFile);
       fs.copyFile(outputVideoPath, destinationPath, (err) => {
         if (err) console.log("evidence file copy error");
         else console.log("File was copied successfully");
@@ -271,7 +271,7 @@ export async function process_video(
   if (files.length > 0 && parseInt(startTime) > parseInt(files[0].start_time)) {
     const trim_length = Math.floor((parseInt(startTime) - parseInt(files[0].start_time)) / 1000);
     if (trim_length > 0) {
-      const trimmedFirstFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}.mp4`);
+      const trimmedFirstFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `trimmed_start_${Date.now()}.mp4`);
       trimmed_files.push(trimmedFirstFile);
       try {
         await trimVideo(fileList[0], trim_length, trimmedFirstFile, "start_trim");
@@ -292,7 +292,7 @@ export async function process_video(
     }
 
     if (trim_length > 0) {
-      const trimmedLastFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}.mp4`);
+      const trimmedLastFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `trimmed_end_${Date.now()}.mp4`);
       trimmed_files.push(trimmedLastFile);
       try {
         await trimVideo(fileList[fileList.length - 1], trim_length, trimmedLastFile, "end_trim");
@@ -308,7 +308,7 @@ export async function process_video(
   if (storeEvidence && orderId) {
     outputVideoFile = `cctv_${orderId}.mp4`;
   }
-  const outputVideoPath = path.join(configManager.baseVideoDirectory, "video_output", outputVideoFile);
+  const outputVideoPath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
 
   const validFiles = await Promise.all(fileList.map(async (file) => {
     try {
@@ -322,7 +322,7 @@ export async function process_video(
     return res.status(404).send("No video found for the specified time range.");
   }
 
-  const filelistPath = path.join(configManager.baseVideoDirectory, "video_output", `video_concat_list_${Date.now()}.txt`);
+  const filelistPath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `video_concat_list_${Date.now()}.txt`);
   fs.writeFileSync(filelistPath, filteredFileList.map((f) => `file '${f}'`).join("\n"));
 
   const ffmpegCmd = spawn("ffmpeg", [
@@ -343,8 +343,8 @@ export async function process_video(
         return res.status(500).send("Error processing the video.");
       }
       if (storeEvidence) {
-        const sourcePath = path.join(configManager.baseVideoDirectory, "video_output", outputVideoFile);
-        const destinationPath = path.join(configManager.baseVideoDirectory, "evidence", outputVideoFile);
+        const sourcePath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
+        const destinationPath = path.join(configManager.baseVideoDirectory, EVIDENCE_DIR, outputVideoFile);
         fs.copyFile(sourcePath, destinationPath, (err) => {
           if (err) console.log("evidence file copy error");
         });
@@ -390,8 +390,8 @@ export async function process_video(
 // NEW STREAMING VIDEO PROCESSING
 // -----------------------------------------------------------------------------
 
-async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime) {
-  console.log(`[streamDahuaVideo] Processing Dahua video for channel ${channelConfig.channel}`);
+async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, sessionId = null) {
+  console.log(`[streamDahuaVideo] Processing Dahua video for channel ${channelConfig.channel}, Session: ${sessionId || 'none'}`);
   const startDate = new Date(parseInt(requestedStartTime));
   const endDate = new Date(parseInt(requestedEndTime));
   const startStr = formatDahuaTime(startDate);
@@ -404,10 +404,25 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
   const fullUrl = `${playbackUrl}${separator}starttime=${startStr}&endtime=${endStr}`;
   console.log(`[streamDahuaVideo] RTSP URL: ${fullUrl}`);
 
+  // Handle audio: Audio is AAC (LC) 16000 Hz mono from RTSP
+  // Need to resample to 44100 Hz and convert to stereo for better web compatibility
+  // Use fragmented MP4 with proper audio track inclusion
   const args = [
-    "-y", "-v", "error", "-rtsp_transport", "tcp", "-i", fullUrl,
-    "-c:v", "copy", "-c:a", "aac",
-    "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "-"
+    "-y", "-v", "warning",
+    "-rtsp_transport", "tcp",
+    "-i", fullUrl,
+    "-map", "0:v", // Map video stream
+    "-map", "0:a", // Map audio stream (required - will fail if no audio)
+    "-c:v", "copy", // Copy video codec
+    "-c:a", "aac", // Encode audio to AAC
+    "-b:a", "128k", // Audio bitrate
+    "-ar", "44100", // Resample to 44100 Hz (from 16000 Hz)
+    "-ac", "2", // Convert mono to stereo (duplicate mono channel to create stereo)
+    "-af", "aresample=44100", // Resample audio (simplified filter)
+    "-avoid_negative_ts", "make_zero", // Handle timestamp issues
+    "-fflags", "+genpts", // Generate presentation timestamps for better seeking
+    "-movflags", "frag_keyframe+faststart+default_base_moof", // Fragmented MP4 with faststart to include track info early
+    "-f", "mp4", "-"
   ];
 
   res.writeHead(200, {
@@ -418,11 +433,61 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
 
   const ffmpeg = spawn("ffmpeg", args);
 
-  import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess }) => {
-    registerFFmpegProcess(ffmpeg.pid, 'stream_dahua', `ffmpeg ${args.join(' ')}`, ffmpeg);
+  import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess, storeProcessInstance }) => {
+    registerFFmpegProcess(ffmpeg.pid, 'stream_dahua', `ffmpeg ${args.join(' ')}`, ffmpeg, sessionId);
+    storeProcessInstance(ffmpeg.pid, ffmpeg);
 
     ffmpeg.stdout.pipe(res);
-    ffmpeg.stderr.on('data', () => { });
+    
+    // Enhanced logging to debug audio issues
+    let stderrBuffer = '';
+    let audioStreamDetected = false;
+    let audioOutputDetected = false;
+    
+    ffmpeg.stderr.on('data', (data) => {
+      const message = data.toString();
+      stderrBuffer += message;
+      
+      const lowerMessage = message.toLowerCase();
+      
+      // Check for input audio stream
+      if (lowerMessage.includes('stream #0') && lowerMessage.includes('audio')) {
+        audioStreamDetected = true;
+        console.log(`[streamDahuaVideo] ✅ Input audio stream detected: ${message.trim()}`);
+      }
+      
+      // Check for output audio stream
+      if (lowerMessage.includes('stream #') && lowerMessage.includes('audio') && lowerMessage.includes('->')) {
+        audioOutputDetected = true;
+        console.log(`[streamDahuaVideo] ✅ Output audio stream created: ${message.trim()}`);
+      }
+      
+      // Log all audio/stream related messages
+      if (lowerMessage.includes('audio') || 
+          lowerMessage.includes('stream') || 
+          lowerMessage.includes('error') || 
+          lowerMessage.includes('warning') ||
+          lowerMessage.includes('input') ||
+          lowerMessage.includes('output') ||
+          lowerMessage.includes('mapping')) {
+        console.log(`[streamDahuaVideo] FFmpeg: ${message.trim()}`);
+      }
+    });
+    
+    // On process start, log initial stream info
+    ffmpeg.on('spawn', () => {
+      console.log(`[streamDahuaVideo] FFmpeg process started with args: ${args.join(' ')}`);
+    });
+    
+    // Check audio status after a short delay
+    setTimeout(() => {
+      if (!audioStreamDetected) {
+        console.warn(`[streamDahuaVideo] ⚠️  No input audio stream detected after 2 seconds`);
+      }
+      if (!audioOutputDetected && audioStreamDetected) {
+        console.error(`[streamDahuaVideo] ❌ Input audio detected but no output audio stream created!`);
+      }
+    }, 2000);
     ffmpeg.on('close', (code) => {
       unregisterFFmpegProcess(ffmpeg.pid);
       console.log(`[streamDahuaVideo] FFmpeg exited with code ${code}`);
@@ -434,10 +499,10 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
   });
 }
 
-async function streamStandardVideo(req, res, channelNumber, startTime, endTime) {
+async function streamStandardVideo(req, res, channelNumber, startTime, endTime, sessionId = null) {
   const startTimeStr = new Date(parseInt(startTime)).toLocaleTimeString();
   const endTimeStr = new Date(parseInt(endTime)).toLocaleTimeString();
-  console.log(`[streamStandardVideo] Start. Channel: ${channelNumber}, Start: ${startTimeStr}, End: ${endTimeStr}`);
+  console.log(`[streamStandardVideo] Start. Channel: ${channelNumber}, Start: ${startTimeStr}, End: ${endTimeStr}, Session: ${sessionId || 'none'}`);
 
   try {
     const query = `SELECT filename, start_time, end_time FROM video_segments WHERE channel_number = ? AND start_time < ? AND end_time > ? ORDER BY start_time ASC`;
@@ -453,7 +518,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
 
     const recordingStatus = getRecordingStatus(channelNumber);
     if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && endTime > recordingStatus.currentSegmentStartTime) {
-      const partialOutputFile = path.join(configManager.baseVideoDirectory, "video_output", `partial_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+      const partialOutputFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `partial_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
       try {
         if (await fileExists(recordingStatus.currentSegmentFile)) {
           await extractPartialSegment(recordingStatus.currentSegmentFile, recordingStatus.currentSegmentStartTime, endTime, partialOutputFile);
@@ -471,7 +536,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       const firstFile = filesMetadata[0];
       const trim_length = Math.floor((parseInt(startTime) - parseInt(firstFile.start_time)) / 1000);
       if (trim_length > 0) {
-        const trimmedFirstFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_start_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+        const trimmedFirstFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `trimmed_start_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
         try {
           await trimVideo(fileList[0], trim_length, trimmedFirstFile, "start_trim");
           fileList[0] = trimmedFirstFile;
@@ -491,7 +556,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       }
 
       if (trim_length > 0) {
-        const trimmedLastFile = path.join(configManager.baseVideoDirectory, "video_output", `trimmed_end_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
+        const trimmedLastFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `trimmed_end_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`);
         try {
           await trimVideo(fileList[fileList.length - 1], trim_length, trimmedLastFile, "end_trim");
           fileList[fileList.length - 1] = trimmedLastFile;
@@ -500,7 +565,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
       }
     }
 
-    const filelistPath = path.join(configManager.baseVideoDirectory, "video_output", `stream_concat_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
+    const filelistPath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `stream_concat_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
     const validFiles = [];
     for (const f of fileList) {
       if (await fileExists(f) && (await fs.promises.stat(f)).size > 10000) validFiles.push(f);
@@ -512,15 +577,44 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime) 
     res.writeHead(200, { "Content-Type": "video/mp4", "Cache-Control": "no-cache", "Connection": "keep-alive" });
 
     const ffmpeg = spawn("ffmpeg", [
-      "-f", "concat", "-safe", "0", "-i", filelistPath, "-nostdin", "-c", "copy",
-      "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "-"
+      "-f", "concat", "-safe", "0", "-i", filelistPath, "-nostdin",
+      "-map", "0", // Map all streams (video + audio if present)
+      "-c:v", "copy", // Copy video codec
+      "-c:a", "copy", // Copy audio codec (preserve original audio)
+      "-movflags", "frag_keyframe+faststart+default_base_moof", // Use faststart instead of empty_moov for audio track detection
+      "-f", "mp4", "-"
     ]);
 
-    import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess }) => {
-      registerFFmpegProcess(ffmpeg.pid, 'stream_standard', `ffmpeg concat stream`, ffmpeg);
+    import("./ffmpegRegistry.js").then(({ registerFFmpegProcess, unregisterFFmpegProcess, storeProcessInstance }) => {
+      registerFFmpegProcess(ffmpeg.pid, 'stream_standard', `ffmpeg concat stream`, ffmpeg, sessionId);
+      storeProcessInstance(ffmpeg.pid, ffmpeg);
 
       ffmpeg.stdout.pipe(res);
-      ffmpeg.stderr.on('data', d => console.log(`[streamStandardVideo] FFmpeg Error: ${d}`));
+      
+      // Enhanced logging to detect audio in pre-recorded files
+      let audioDetected = false;
+      ffmpeg.stderr.on('data', (data) => {
+        const message = data.toString();
+        const lowerMessage = message.toLowerCase();
+        
+        // Log errors and warnings
+        if (lowerMessage.includes('error') || lowerMessage.includes('warning')) {
+          console.log(`[streamStandardVideo] FFmpeg: ${message.trim()}`);
+        }
+        
+        // Check for audio stream detection
+        if (lowerMessage.includes('stream #') && lowerMessage.includes('audio')) {
+          audioDetected = true;
+          console.log(`[streamStandardVideo] ✅ Audio stream detected in pre-recorded files: ${message.trim()}`);
+        }
+      });
+      
+      // Check audio status after a delay
+      setTimeout(() => {
+        if (!audioDetected) {
+          console.warn(`[streamStandardVideo] ⚠️  No audio stream detected in pre-recorded files after 2 seconds`);
+        }
+      }, 2000);
       ffmpeg.on('close', (code) => {
         unregisterFFmpegProcess(ffmpeg.pid);
         console.log(`[streamStandardVideo] Stream ended with code ${code}`);
@@ -584,7 +678,7 @@ export async function getVideo(req, res) {
   const recordingStatus = getRecordingStatus(channelNumber);
   let inProgressSegment = null;
   if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime) {
-    const partialOutputFile = path.join(baseVideoDirectory, "video_output", `partial_${Date.now()}.mp4`);
+    const partialOutputFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `partial_${Date.now()}.mp4`);
     try {
       await extractPartialSegment(recordingStatus.currentSegmentFile, recordingStatus.currentSegmentStartTime, requestedEndTime, partialOutputFile);
       inProgressSegment = { filename: partialOutputFile, start_time: recordingStatus.currentSegmentStartTime, end_time: requestedEndTime };
@@ -654,13 +748,37 @@ export async function streamVideo(req, res) {
     return res.status(400).send("Missing parameters");
   }
 
+  // Get session ID from request (set by authenticateSession middleware)
+  const sessionId = req.sessionId || null;
+  
+  // Kill any previous streams for this session BEFORE starting a new one
+  // Do this synchronously to prevent multiple streams from starting
+  if (sessionId) {
+    try {
+      const { killSessionStreams } = await import("./ffmpegRegistry.js");
+      const killedPids = killSessionStreams(sessionId);
+      if (killedPids.length > 0) {
+        console.log(`[streamVideo] Killed ${killedPids.length} previous stream(s) for session ${sessionId}`);
+        // Small delay to ensure processes are fully terminated
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    } catch (err) {
+      console.error("[streamVideo] Error killing previous streams:", err);
+    }
+  }
+  
+  // Handle client disconnect - kill stream immediately
+  req.on('close', () => {
+    console.log(`[streamVideo] Client disconnected, stream will be cleaned up by process handlers`);
+  });
+
   const recordingConfigurations = await getRecordingConfigurations();
   const channelConfig = recordingConfigurations.find(c => String(c.channel) === String(channelNumber));
 
   if (channelConfig && channelConfig.type === 'dahua') {
-    return streamDahuaVideo(req, res, channelConfig, startTime, endTime);
+    return streamDahuaVideo(req, res, channelConfig, startTime, endTime, sessionId);
   } else {
-    return streamStandardVideo(req, res, channelNumber, startTime, endTime);
+    return streamStandardVideo(req, res, channelNumber, startTime, endTime, sessionId);
   }
 }
 

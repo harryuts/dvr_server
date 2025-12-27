@@ -8,6 +8,7 @@ import LoginPage from "./pages/LoginPage";
 import PlaybackPage from "./pages/PlaybackPage";
 import SettingsPage from "./pages/SettingsPage";
 import LivePage from "./pages/LivePage";
+import POSIntegrationPage from "./pages/POSIntegrationPage";
 
 interface AuthData {
   token: string;
@@ -123,6 +124,14 @@ function App() {
                   element={
                     <PrivateRoute>
                       <SettingsPage />
+                    </PrivateRoute>
+                  }
+                />
+                <Route
+                  path="/pos-integration"
+                  element={
+                    <PrivateRoute>
+                      <POSIntegrationPage />
                     </PrivateRoute>
                   }
                 />

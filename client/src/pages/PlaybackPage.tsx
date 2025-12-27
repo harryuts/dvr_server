@@ -12,9 +12,9 @@ import {
   Tabs,
   Tab,
   Box,
+  ListItemText,
 } from "@mui/material";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
-import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { TimePicker } from "@mui/x-date-pickers/TimePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import "video.js/dist/video-js.css";
@@ -52,7 +52,7 @@ const PlaybackPage: React.FC = () => {
   const now = new Date();
   const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000);
 
-  const [selectedDate, setSelectedDate] = useState<Date | null>(now);
+  const [selectedDate, setSelectedDate] = useState<string>(now.toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState<Date | null>(thirtySecondsAgo);
   const [endTime, setEndTime] = useState<Date | null>(now);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
@@ -65,13 +65,14 @@ const PlaybackPage: React.FC = () => {
   const [seekOffset, setSeekOffset] = useState<number>(0);
   const [currentTab, setCurrentTab] = useState(0); // 0 = Legacy, 1 = Streaming, 2 = Scrolling
   const [requestStartTime, setRequestStartTime] = useState<number | null>(null);
+  const [datesWithRecordings, setDatesWithRecordings] = useState<Set<string>>(new Set());
 
   const handleChannelChange = (event: SelectChangeEvent) => {
     setSelectedChannel(event.target.value);
   };
 
-  const handleDateChange = (date: Date | null) => {
-    setSelectedDate(date);
+  const handleDateChange = (dateStr: string) => {
+    setSelectedDate(dateStr);
   };
 
   const handleStartTimeChange = (time: Date | null) => {
@@ -123,12 +124,41 @@ const PlaybackPage: React.FC = () => {
     fetchChannelInfo();
   }, [selectedChannel]);
 
+  // Fetch dates with recordings when channel changes
+  useEffect(() => {
+    if (!selectedChannel) return;
+
+    const fetchDatesWithRecordings = async () => {
+      try {
+        const response = await authenticatedFetch(
+          `${getApiBaseUrl()}/api/dates-with-recordings?channel=${selectedChannel}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setDatesWithRecordings(new Set(data.dates || []));
+          
+          // If current selected date doesn't have recordings, select the first available date
+          if (data.dates && data.dates.length > 0) {
+            const currentDateStr = selectedDate;
+            if (!data.dates.includes(currentDateStr)) {
+              setSelectedDate(data.dates[0]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching dates with recordings:", err);
+      }
+    };
+
+    fetchDatesWithRecordings();
+  }, [selectedChannel]);
+
   const handleSubmit = async () => {
     if (selectedDate && startTime && endTime && selectedChannel) {
-      const startDateTime = new Date(selectedDate);
-      startDateTime.setHours(startTime.getHours(), startTime.getMinutes(), startTime.getSeconds());
-      const endDateTime = new Date(selectedDate);
-      endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), endTime.getSeconds());
+      // Parse date string (YYYY-MM-DD) and combine with time
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const startDateTime = new Date(year, month - 1, day, startTime.getHours(), startTime.getMinutes(), startTime.getSeconds());
+      const endDateTime = new Date(year, month - 1, day, endTime.getHours(), endTime.getMinutes(), endTime.getSeconds());
 
       const startTimeEpoch = startDateTime.getTime();
       const endTimeEpoch = endDateTime.getTime();
@@ -251,12 +281,52 @@ const PlaybackPage: React.FC = () => {
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {/* @ts-ignore */}
               <Grid item xs={12}>
-                <DatePicker
-                  label="Select Date"
-                  value={selectedDate}
-                  onChange={handleDateChange}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <FormControl fullWidth>
+                  <InputLabel id="date-select-label">Select Date</InputLabel>
+                  <Select
+                    labelId="date-select-label"
+                    label="Select Date"
+                    value={selectedDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    MenuProps={{ PaperProps: { sx: { maxHeight: 400 } } }}
+                  >
+                    {/* Only show dates with recordings */}
+                    {Array.from({ length: 90 }, (_, i) => {
+                      const date = new Date();
+                      date.setDate(date.getDate() - i);
+                      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                      const hasRecording = datesWithRecordings.has(dateStr);
+                      
+                      // Only render dates with recordings
+                      if (!hasRecording) return null;
+                      
+                      const isToday = i === 0;
+                      const displayDate = isToday ? 'Today' : date.toLocaleDateString('en-US', { 
+                        weekday: 'short', 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      });
+                      
+                      return (
+                        <MenuItem key={dateStr} value={dateStr}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                            <Box
+                              sx={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                backgroundColor: 'error.main',
+                                flexShrink: 0
+                              }}
+                            />
+                            <ListItemText primary={displayDate} />
+                          </Box>
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                </FormControl>
               </Grid>
               {/* @ts-ignore */}
               <Grid item xs={6}>

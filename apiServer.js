@@ -6,7 +6,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import https from "https";
-import configManager from "./configManager.js";
+import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { authenticateSession } from "./authentication.js";
 import authRoutes from "./routes/auth_api.js";
 import channelRoutes from "./routes/channel_api.js";
@@ -69,11 +69,11 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.use(
     "/cctv",
-    express.static(path.join(configManager.baseVideoDirectory, "video_output"))
+    express.static(path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR))
   );
   app.use(
     "/cctv_evidence",
-    express.static(path.join(configManager.baseVideoDirectory, "evidence"))
+    express.static(path.join(configManager.baseVideoDirectory, EVIDENCE_DIR))
   );
   // Return 404 if file not found in /cctv_evidence, preventing fall-through to SPA
   app.use("/cctv_evidence", (req, res) => {
@@ -177,10 +177,47 @@ const startApiServer = (db, spawnedProcesses) => {
 
   app.get("/api/disk/usage", authenticateSession, async (req, res) => {
     try {
-      res.json(await storageManager.getDiskUsagePercentage(configManager.baseVideoDirectory));
+      const baseDir = configManager.baseVideoDirectory;
+      const diskUsagePercent = await storageManager.getDiskUsagePercentage(baseDir);
+      
+      // Calculate directory sizes
+      const getDirectorySize = async (dirPath) => {
+        try {
+          const { execSync } = await import('child_process');
+          // Use du command to get directory size in bytes
+          const output = execSync(`du -sb "${dirPath}" 2>/dev/null || echo "0"`, { encoding: 'utf8' });
+          const size = parseInt(output.split('\t')[0]) || 0;
+          return size;
+        } catch (error) {
+          console.error(`Error getting size for ${dirPath}:`, error);
+          return 0;
+        }
+      };
+
+      const videoOutputPath = path.join(baseDir, VIDEO_OUTPUT_DIR);
+      const evidencePath = path.join(baseDir, EVIDENCE_DIR);
+      
+      const [videoOutputSize, evidenceSize] = await Promise.all([
+        getDirectorySize(videoOutputPath),
+        getDirectorySize(evidencePath)
+      ]);
+
+      res.json({
+        diskUsagePercent: diskUsagePercent,
+        directories: {
+          videoOutput: {
+            path: videoOutputPath,
+            sizeBytes: videoOutputSize
+          },
+          evidence: {
+            path: evidencePath,
+            sizeBytes: evidenceSize
+          }
+        }
+      });
     } catch (error) {
       console.error(error.message);
-      res.status(500).json({ error: "Failed to get the query" });
+      res.status(500).json({ error: "Failed to get disk usage information" });
     }
   });
 
