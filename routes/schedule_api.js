@@ -22,10 +22,10 @@ router.post("", authenticateSession, async (req, res) => {
   if (
     !startTime ||
     !stopTime ||
-    !startTime.hour ||
-    !startTime.minute ||
-    !stopTime.hour ||
-    !stopTime.minute
+    typeof startTime.hour !== 'number' ||
+    typeof startTime.minute !== 'number' ||
+    typeof stopTime.hour !== 'number' ||
+    typeof stopTime.minute !== 'number'
   ) {
     return res.status(400).json({ message: "Invalid schedule data provided" });
   }

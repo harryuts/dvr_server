@@ -14,6 +14,7 @@ import adminRoutes from "./routes/admin_api.js";
 import scheduleRoutes from "./routes/schedule_api.js";
 import mediaRoutes from "./routes/media_api.js";
 import posRoutes from "./routes/pos_api.js";
+import logsRoutes from "./routes/logs_api.js";
 import { recordingControls } from "./scheduleRecording.js";
 import storageManager from "./storage-management.js";
 import { getSystemMetrics } from "./dbFunctions.js";
@@ -66,6 +67,7 @@ const startApiServer = (db, spawnedProcesses) => {
   app.use(`/api`, mediaRoutes);
   app.use(`/pos`, posRoutes);
   app.use(`/admin`, adminRoutes);
+  app.use(`/api/logs`, logsRoutes);
 
   app.use(
     "/cctv",

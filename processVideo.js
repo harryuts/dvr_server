@@ -6,6 +6,7 @@ import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
 import { fileURLToPath } from "url";
 import { getRecordingConfigurations } from "./configManager.js";
+import performanceLogger from "./performanceLogger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -144,8 +145,10 @@ function formatDahuaTime(date) {
 /**
  * Handles video retrieval for Dahua channels by downloading the file from NVR (Legacy behavior)
  */
-async function processDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, storeEvidence, orderId) {
+async function processDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, storeEvidence, orderId, requestId = null) {
   console.log(`[processDahuaVideo] Processing Dahua video for channel ${channelConfig.channel}`);
+  
+  if (requestId) performanceLogger.logStep(requestId, "Dahua video processing - start");
 
   const startDate = new Date(requestedStartTime);
   const endDate = new Date(requestedEndTime);
@@ -162,6 +165,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
   const fullUrl = `${playbackUrl}${separator}starttime=${startStr}&endtime=${endStr}`;
 
   console.log(`[processDahuaVideo] RTSP URL: ${fullUrl}`);
+  if (requestId) performanceLogger.logStep(requestId, "Generate playback URL", { url: playbackUrl });
 
   // Output file setup
   let outputVideoFile = `dahua_${channelConfig.channel}_${Date.now()}.mp4`;
@@ -183,6 +187,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
   ];
 
   console.log(`[processDahuaVideo] Spawning FFmpeg...`);
+  if (requestId) performanceLogger.logStep(requestId, "FFmpeg download - start");
 
   try {
     await new Promise((resolve, reject) => {
@@ -207,17 +212,23 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
       });
     });
 
+    if (requestId) performanceLogger.logStep(requestId, "FFmpeg download - complete");
+
     // Check if file exists and has content
+    if (requestId) performanceLogger.logStep(requestId, "Validate output file");
     const stats = await fs.promises.stat(outputVideoPath).catch(() => null);
     if (!stats || stats.size === 0) {
       console.error(`[processDahuaVideo] Empty or missing file: ${outputVideoFile}`);
       if (stats) await fs.promises.unlink(outputVideoPath).catch(() => { });
+      if (requestId) performanceLogger.endRequest(requestId, "error", { error: "Empty or missing output file" });
       return res.status(404).json({ error: "No video found for this time range." });
     }
 
     console.log(`[processDahuaVideo] Download complete: ${outputVideoFile} (${stats.size} bytes)`);
+    if (requestId) performanceLogger.logStep(requestId, "Output file validated", { fileSize: stats.size, fileName: outputVideoFile });
 
     if (storeEvidence) {
+      if (requestId) performanceLogger.logStep(requestId, "Copy to evidence storage");
       const destinationPath = path.join(configManager.baseVideoDirectory, EVIDENCE_DIR, outputVideoFile);
       fs.copyFile(outputVideoPath, destinationPath, (err) => {
         if (err) console.log("evidence file copy error");
@@ -225,13 +236,16 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
       });
     }
 
-    res.json({
+    const result = {
       outputFile: outputVideoFile,
       from: new Date(requestedStartTime).toLocaleTimeString(),
       to: new Date(requestedEndTime).toLocaleTimeString(),
       fromEpoch: requestedStartTime,
       toEpoch: requestedEndTime,
-    });
+    };
+
+    if (requestId) performanceLogger.endRequest(requestId, "success", result);
+    res.json(result);
 
   } catch (err) {
     console.error(`[processDahuaVideo] Error: ${err.message}`);
@@ -240,6 +254,7 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
       channel: channelConfig.channel,
       url: fullUrl
     });
+    if (requestId) performanceLogger.endRequest(requestId, "error", { error: err.message });
     res.status(500).send("Error retrieving video from NVR.");
   }
 }
@@ -254,11 +269,15 @@ export async function process_video(
   endTime,
   storeEvidence,
   orderId,
-  inProgressSegment = null
+  inProgressSegment = null,
+  requestId = null
 ) {
   const startTimeStr = new Date(parseInt(startTime)).toLocaleTimeString();
   const endTimeStr = new Date(parseInt(endTime)).toLocaleTimeString();
   console.log(`[process_video] Start. Files: ${files.length}, Start: ${startTimeStr}, End: ${endTimeStr}`);
+  
+  if (requestId) performanceLogger.logStep(requestId, "Process video - start", { fileCount: files.length });
+  
   const trimmed_files = [];
   let fileList = files.map((f) => f.filename);
 
@@ -269,6 +288,7 @@ export async function process_video(
 
   // Trim Start
   if (files.length > 0 && parseInt(startTime) > parseInt(files[0].start_time)) {
+    if (requestId) performanceLogger.logStep(requestId, "Trim start - begin");
     const trim_length = Math.floor((parseInt(startTime) - parseInt(files[0].start_time)) / 1000);
     if (trim_length > 0) {
       const trimmedFirstFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `trimmed_start_${Date.now()}.mp4`);
@@ -276,14 +296,17 @@ export async function process_video(
       try {
         await trimVideo(fileList[0], trim_length, trimmedFirstFile, "start_trim");
         fileList[0] = trimmedFirstFile;
+        if (requestId) performanceLogger.logStep(requestId, "Trim start - complete", { trimLength: trim_length });
       } catch (error) {
         console.error("Error trimming start:", error);
+        if (requestId) performanceLogger.logStep(requestId, "Trim start - error", { error: error.message });
       }
     }
   }
 
   // Trim End
   if (files.length > 0 && parseInt(endTime) < parseInt(files[files.length - 1].end_time)) {
+    if (requestId) performanceLogger.logStep(requestId, "Trim end - begin");
     let trim_length;
     if (files.length === 1 && parseInt(startTime) > parseInt(files[0].start_time)) {
       trim_length = Math.floor((parseInt(endTime) - parseInt(startTime)) / 1000);
@@ -297,13 +320,16 @@ export async function process_video(
       try {
         await trimVideo(fileList[fileList.length - 1], trim_length, trimmedLastFile, "end_trim");
         fileList[fileList.length - 1] = trimmedLastFile;
+        if (requestId) performanceLogger.logStep(requestId, "Trim end - complete", { trimLength: trim_length });
       } catch (error) {
         console.error("Error trimming end:", error);
+        if (requestId) performanceLogger.logStep(requestId, "Trim end - error", { error: error.message });
       }
     }
   }
 
   // Concatenate
+  if (requestId) performanceLogger.logStep(requestId, "Prepare concatenation");
   let outputVideoFile = `output_${Date.now()}.mp4`;
   if (storeEvidence && orderId) {
     outputVideoFile = `cctv_${orderId}.mp4`;
@@ -318,12 +344,17 @@ export async function process_video(
   }));
   const filteredFileList = validFiles.filter(f => f !== null);
 
+  if (requestId) performanceLogger.logStep(requestId, "Validate files", { validFiles: filteredFileList.length, totalFiles: fileList.length });
+
   if (filteredFileList.length === 0) {
+    if (requestId) performanceLogger.endRequest(requestId, "error", { error: "No valid files found" });
     return res.status(404).send("No video found for the specified time range.");
   }
 
   const filelistPath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `video_concat_list_${Date.now()}.txt`);
   fs.writeFileSync(filelistPath, filteredFileList.map((f) => `file '${f}'`).join("\n"));
+
+  if (requestId) performanceLogger.logStep(requestId, "FFmpeg concatenation - start", { fileCount: filteredFileList.length });
 
   const ffmpegCmd = spawn("ffmpeg", [
     "-f", "concat", "-safe", "0", "-i", filelistPath, "-y", "-c", "copy", "-movflags", "+faststart", outputVideoPath,
@@ -339,23 +370,37 @@ export async function process_video(
     ffmpegCmd.on("close", (code) => {
       unregisterFFmpegProcess(ffmpegCmd.pid);
       console.log(`[process_video] FFmpeg process exited with code ${code}`);
+      
       if (code !== 0) {
+        if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg concatenation failed", exitCode: code });
         return res.status(500).send("Error processing the video.");
       }
+      
+      if (requestId) performanceLogger.logStep(requestId, "FFmpeg concatenation - complete");
+      
       if (storeEvidence) {
+        if (requestId) performanceLogger.logStep(requestId, "Copy to evidence storage");
         const sourcePath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
         const destinationPath = path.join(configManager.baseVideoDirectory, EVIDENCE_DIR, outputVideoFile);
         fs.copyFile(sourcePath, destinationPath, (err) => {
           if (err) console.log("evidence file copy error");
         });
       }
-      res.json({
+      
+      const result = {
         outputFile: outputVideoFile,
         from: new Date(parseInt(startTime)).toLocaleTimeString(),
         to: new Date(parseInt(endTime)).toLocaleTimeString(),
         fromEpoch: parseInt(startTime),
         toEpoch: parseInt(endTime),
-      });
+      };
+
+      if (requestId) {
+        performanceLogger.logStep(requestId, "Cleanup temporary files");
+        performanceLogger.endRequest(requestId, "success", result);
+      }
+      
+      res.json(result);
 
       // Cleanup
       trimmed_files.forEach(f => fs.unlink(f, () => { }));
@@ -658,39 +703,79 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime, 
  */
 export async function getVideo(req, res) {
   const { startTime, endTime, channelNumber, storeEvidence, orderId } = req.query;
+  const requestId = `getVideo_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
   let requestedStartTime = parseInt(startTime);
   let requestedEndTime = parseInt(endTime);
   const now = Date.now();
   const bufferMs = 3000;
   if (requestedStartTime > now - bufferMs) requestedStartTime = now - bufferMs;
 
+  // Start performance tracking
+  performanceLogger.startRequest(requestId, "getVideo", {
+    channelNumber,
+    startTime: requestedStartTime,
+    endTime: requestedEndTime,
+    duration: requestedEndTime - requestedStartTime,
+    storeEvidence,
+    orderId,
+  });
+
   if (requestedStartTime >= requestedEndTime) {
+    performanceLogger.endRequest(requestId, "error", { error: "Invalid time range" });
     return res.status(400).json({ error: "Start time must be before end time." });
   }
 
-  const recordingConfigurations = await getRecordingConfigurations();
-  const channelConfig = recordingConfigurations.find(c => String(c.channel) === String(channelNumber));
+  try {
+    performanceLogger.logStep(requestId, "Get recording configurations");
+    const recordingConfigurations = await getRecordingConfigurations();
+    const channelConfig = recordingConfigurations.find(c => String(c.channel) === String(channelNumber));
 
-  if (channelConfig && channelConfig.type === 'dahua') {
-    return processDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, storeEvidence, orderId);
+    if (channelConfig && channelConfig.type === 'dahua') {
+      performanceLogger.logStep(requestId, "Route to Dahua processing", { channelType: "dahua" });
+      return processDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, storeEvidence, orderId, requestId);
+    }
+
+    performanceLogger.logStep(requestId, "Check recording status");
+    const recordingStatus = getRecordingStatus(channelNumber);
+    let inProgressSegment = null;
+    
+    if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime) {
+      performanceLogger.logStep(requestId, "Extract partial segment - start");
+      const partialOutputFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `partial_${Date.now()}.mp4`);
+      try {
+        await extractPartialSegment(recordingStatus.currentSegmentFile, recordingStatus.currentSegmentStartTime, requestedEndTime, partialOutputFile);
+        inProgressSegment = { filename: partialOutputFile, start_time: recordingStatus.currentSegmentStartTime, end_time: requestedEndTime };
+        performanceLogger.logStep(requestId, "Extract partial segment - complete");
+      } catch (error) {
+        performanceLogger.logStep(requestId, "Extract partial segment - error", { error: error.message });
+        console.error("Error extracting partial segment:", error);
+      }
+    }
+
+    performanceLogger.logStep(requestId, "Query database for segments");
+    const query = `SELECT filename, start_time, end_time FROM video_segments WHERE channel_number = ? AND start_time < ? AND end_time > ? ORDER BY start_time ASC`;
+    db.all(query, [channelNumber, requestedEndTime, requestedStartTime], (err, rows) => {
+      if (err) {
+        performanceLogger.endRequest(requestId, "error", { error: "Database query failed" });
+        return res.status(404).send("Unable to query database.");
+      }
+      
+      performanceLogger.logStep(requestId, "Database query complete", { segmentsFound: rows.length });
+      
+      if (rows.length === 0 && !inProgressSegment) {
+        performanceLogger.endRequest(requestId, "error", { error: "No video found" });
+        return res.status(404).send("No video found.");
+      }
+      
+      performanceLogger.logStep(requestId, "Start video processing");
+      process_video(res, rows, requestedStartTime, requestedEndTime, storeEvidence, orderId, inProgressSegment, requestId);
+    });
+  } catch (error) {
+    performanceLogger.endRequest(requestId, "error", { error: error.message });
+    console.error("[getVideo] Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
-
-  const recordingStatus = getRecordingStatus(channelNumber);
-  let inProgressSegment = null;
-  if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime) {
-    const partialOutputFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `partial_${Date.now()}.mp4`);
-    try {
-      await extractPartialSegment(recordingStatus.currentSegmentFile, recordingStatus.currentSegmentStartTime, requestedEndTime, partialOutputFile);
-      inProgressSegment = { filename: partialOutputFile, start_time: recordingStatus.currentSegmentStartTime, end_time: requestedEndTime };
-    } catch (error) { console.error("Error extracting partial segment:", error); }
-  }
-
-  const query = `SELECT filename, start_time, end_time FROM video_segments WHERE channel_number = ? AND start_time < ? AND end_time > ? ORDER BY start_time ASC`;
-  db.all(query, [channelNumber, requestedEndTime, requestedStartTime], (err, rows) => {
-    if (err) return res.status(404).send("Unable to query database.");
-    if (rows.length === 0 && !inProgressSegment) return res.status(404).send("No video found.");
-    process_video(res, rows, requestedStartTime, requestedEndTime, storeEvidence, orderId, inProgressSegment);
-  });
 }
 
 /**
@@ -698,45 +783,76 @@ export async function getVideo(req, res) {
  */
 export async function getLiveVideo(req, res) {
   const { startTime, endTime, channelNumber } = req.query;
+  const requestId = `getLiveVideo_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
   let requestedStartTime = parseInt(startTime);
   let requestedEndTime = parseInt(endTime);
   const now = Date.now();
   const bufferMs = 3000;
   if (requestedStartTime > now - bufferMs) requestedStartTime = now - bufferMs;
 
-  // Check if content exists before returning stream URL (optional but good for UX)
-  const recordingConfigurations = await getRecordingConfigurations();
-  const channelConfig = recordingConfigurations.find(c => String(c.channel) === String(channelNumber));
-
-  if (channelConfig && channelConfig.type === 'dahua') {
-    const streamUrl = `/api/stream?channelNumber=${channelNumber}&startTime=${requestedStartTime}&endTime=${requestedEndTime}`;
-    return res.json({
-      streamUrl: streamUrl,
-      from: new Date(requestedStartTime).toLocaleTimeString(),
-      to: new Date(requestedEndTime).toLocaleTimeString(),
-      fromEpoch: requestedStartTime,
-      toEpoch: requestedEndTime,
-    });
-  }
-
-  const query = `SELECT 1 FROM video_segments WHERE channel_number = ? AND start_time < ? AND end_time > ? LIMIT 1`;
-  db.get(query, [channelNumber, requestedEndTime, requestedStartTime], (err, row) => {
-    if (err) return res.status(500).send("DB Error");
-
-    const recordingStatus = getRecordingStatus(channelNumber);
-    const hasInProgress = (recordingStatus.isRecording && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime);
-
-    if (!row && !hasInProgress) return res.status(404).send("No video found.");
-
-    const streamUrl = `/api/stream?channelNumber=${channelNumber}&startTime=${requestedStartTime}&endTime=${requestedEndTime}`;
-    res.json({
-      streamUrl: streamUrl,
-      from: new Date(requestedStartTime).toLocaleTimeString(),
-      to: new Date(requestedEndTime).toLocaleTimeString(),
-      fromEpoch: requestedStartTime,
-      toEpoch: requestedEndTime,
-    });
+  // Start performance tracking
+  performanceLogger.startRequest(requestId, "getLiveVideo", {
+    channelNumber,
+    startTime: requestedStartTime,
+    endTime: requestedEndTime,
+    duration: requestedEndTime - requestedStartTime,
   });
+
+  try {
+    // Check if content exists before returning stream URL (optional but good for UX)
+    performanceLogger.logStep(requestId, "Get recording configurations");
+    const recordingConfigurations = await getRecordingConfigurations();
+    const channelConfig = recordingConfigurations.find(c => String(c.channel) === String(channelNumber));
+
+    if (channelConfig && channelConfig.type === 'dahua') {
+      performanceLogger.logStep(requestId, "Generate stream URL for Dahua", { channelType: "dahua" });
+      const streamUrl = `/api/stream?channelNumber=${channelNumber}&startTime=${requestedStartTime}&endTime=${requestedEndTime}`;
+      const result = {
+        streamUrl: streamUrl,
+        from: new Date(requestedStartTime).toLocaleTimeString(),
+        to: new Date(requestedEndTime).toLocaleTimeString(),
+        fromEpoch: requestedStartTime,
+        toEpoch: requestedEndTime,
+      };
+      performanceLogger.endRequest(requestId, "success", result);
+      return res.json(result);
+    }
+
+    performanceLogger.logStep(requestId, "Query database for video availability");
+    const query = `SELECT 1 FROM video_segments WHERE channel_number = ? AND start_time < ? AND end_time > ? LIMIT 1`;
+    db.get(query, [channelNumber, requestedEndTime, requestedStartTime], (err, row) => {
+      if (err) {
+        performanceLogger.endRequest(requestId, "error", { error: "Database error" });
+        return res.status(500).send("DB Error");
+      }
+
+      performanceLogger.logStep(requestId, "Check recording status");
+      const recordingStatus = getRecordingStatus(channelNumber);
+      const hasInProgress = (recordingStatus.isRecording && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime);
+
+      if (!row && !hasInProgress) {
+        performanceLogger.endRequest(requestId, "error", { error: "No video found" });
+        return res.status(404).send("No video found.");
+      }
+
+      performanceLogger.logStep(requestId, "Generate stream URL", { hasDbSegments: !!row, hasInProgress });
+      const streamUrl = `/api/stream?channelNumber=${channelNumber}&startTime=${requestedStartTime}&endTime=${requestedEndTime}`;
+      const result = {
+        streamUrl: streamUrl,
+        from: new Date(requestedStartTime).toLocaleTimeString(),
+        to: new Date(requestedEndTime).toLocaleTimeString(),
+        fromEpoch: requestedStartTime,
+        toEpoch: requestedEndTime,
+      };
+      performanceLogger.endRequest(requestId, "success", result);
+      res.json(result);
+    });
+  } catch (error) {
+    performanceLogger.endRequest(requestId, "error", { error: error.message });
+    console.error("[getLiveVideo] Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 }
 
 /**

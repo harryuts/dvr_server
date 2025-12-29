@@ -6,6 +6,7 @@ import SecurityTab from "../components/SecurityTab";
 import ApiKeyManagementTab from "../components/ApiKeyManagementTab";
 import StorageTab from "../components/StorageTab";
 import SystemTab from "../components/SystemTab";
+import VideoProcessingTab from "../components/VideoProcessingTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -62,6 +63,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="API Key" {...a11yProps(3)} />
             <Tab label="Storage" {...a11yProps(4)} />
             <Tab label="System" {...a11yProps(5)} />
+            <Tab label="Logs" {...a11yProps(6)} />
           </Tabs>
         </Box>
         <TabPanel value={value} index={0}>
@@ -81,6 +83,9 @@ const SettingsPage: React.FC = () => {
         </TabPanel>
         <TabPanel value={value} index={5}>
           <SystemTab />
+        </TabPanel>
+        <TabPanel value={value} index={6}>
+          <VideoProcessingTab />
         </TabPanel>
       </Box>
     </Container>
