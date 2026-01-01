@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PIN = "123456";
 const configFilePath = path.join(__dirname, "config.json"); // Path to your config file
-const segmentDuration = 30;
+let segmentDuration = 300; // Default: 5 minutes (300 seconds), will be loaded from config
 let baseVideoDirectory = "/mnt/m2nvme"; // Default value, will be loaded from config
 let liveCaptureFrameRate = 1; // Default: 1 frame per second
 let maxStoragePercent = 80; // Default: 80%
@@ -81,11 +81,19 @@ async function initializeConfig() {
     console.log("Config file initialized with default baseVideoDirectory (/mnt/m2nvme).");
   }
 
-  // Load live capture frame rate into memory
+  // Initialize segmentDuration if not set
+  if (!config.segmentDuration) {
+    config.segmentDuration = 300; // 5 minutes in seconds
+    await writeConfig(config);
+    console.log("Config file initialized with default segmentDuration (300 seconds / 5 minutes).");
+  }
+
+  // Load values into memory
   liveCaptureFrameRate = config.liveCaptureFrameRate || 1;
   maxStoragePercent = config.maxStoragePercent || 80;
   authAppId = config.authAppId || "mammam";
   baseVideoDirectory = config.baseVideoDirectory || "/mnt/m2nvme";
+  segmentDuration = config.segmentDuration || 300;
 }
 
 initializeConfig();
@@ -207,6 +215,19 @@ export async function updateBaseVideoDirectory(newDirectory) {
   return true;
 }
 
+export async function getSegmentDuration() {
+  const config = await readConfig();
+  return config.segmentDuration || 300;
+}
+
+export async function updateSegmentDuration(durationInSeconds) {
+  const config = await readConfig();
+  config.segmentDuration = parseInt(durationInSeconds, 10);
+  await writeConfig(config);
+  segmentDuration = config.segmentDuration;
+  return true;
+}
+
 export { segmentDuration, baseVideoDirectory, liveCaptureFrameRate, maxStoragePercent, VIDEO_OUTPUT_DIR, EVIDENCE_DIR, readConfig, writeConfig };
 export default {
   segmentDuration,
@@ -231,6 +252,8 @@ export default {
   updateAuthAppId,
   getBaseVideoDirectory,
   updateBaseVideoDirectory,
+  getSegmentDuration,
+  updateSegmentDuration,
   readConfig,
   writeConfig,
 };

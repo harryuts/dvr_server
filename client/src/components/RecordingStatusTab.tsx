@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
   Typography,
@@ -49,10 +49,16 @@ interface OtherProcess {
 
 interface TerminationLog {
   timestamp: string;
+  pid: number | null;
   code: number | null;
   signal: string | null;
   uptime: string;
   reason: string;
+  lastStderr: string[];
+  restartAction: string;
+  restartDelayMs: number | null;
+  manualStop: boolean;
+  wasInRecordingWindow: boolean;
 }
 
 interface RecordingStatusResponse {
@@ -502,21 +508,73 @@ const RecordingStatusTab = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell>Time</TableCell>
+                        <TableCell>PID</TableCell>
                         <TableCell>Code</TableCell>
                         <TableCell>Signal</TableCell>
                         <TableCell>Reason</TableCell>
-                        <TableCell>Uptime Before Exit</TableCell>
+                        <TableCell>Uptime</TableCell>
+                        <TableCell>Restart Action</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {terminationLogs.map((log, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
-                          <TableCell>{log.code ?? 'N/A'}</TableCell>
-                          <TableCell>{log.signal ?? 'N/A'}</TableCell>
-                          <TableCell>{log.reason}</TableCell>
-                          <TableCell>{log.uptime}</TableCell>
-                        </TableRow>
+                        <React.Fragment key={index}>
+                          <TableRow>
+                            <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
+                            <TableCell>{log.pid ?? 'N/A'}</TableCell>
+                            <TableCell>{log.code ?? 'N/A'}</TableCell>
+                            <TableCell>{log.signal ?? 'N/A'}</TableCell>
+                            <TableCell>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: log.reason.includes('Graceful') ? 'success.main' :
+                                    log.reason.includes('Crash') || log.reason.includes('SIGKILL') || log.reason.includes('SIGSEGV') ? 'error.main' :
+                                      log.reason.includes('Error') ? 'warning.main' : 'text.primary'
+                                }}
+                              >
+                                {log.reason}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{log.uptime}</TableCell>
+                            <TableCell>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: log.restartAction?.includes('restart') ? 'info.main' : 'text.secondary',
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                {log.restartAction || 'N/A'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                          {log.lastStderr && log.lastStderr.length > 0 && (
+                            <TableRow>
+                              <TableCell colSpan={7} sx={{ py: 0.5 }}>
+                                <Box
+                                  sx={{
+                                    bgcolor: 'grey.900',
+                                    color: 'error.light',
+                                    p: 1,
+                                    borderRadius: 1,
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.7rem',
+                                    maxHeight: '80px',
+                                    overflowY: 'auto',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-all'
+                                  }}
+                                >
+                                  <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', mb: 0.5 }}>
+                                    Last stderr output:
+                                  </Typography>
+                                  {log.lastStderr.slice(-5).join('\n')}
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
                       ))}
                     </TableBody>
                   </Table>
@@ -566,7 +624,7 @@ const RecordingStatusTab = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </Box >
   );
 };
 export default RecordingStatusTab;

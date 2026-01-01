@@ -40,18 +40,32 @@ function logError(message, details = {}) {
 
 /**
  * Trims a video file either from the start or the end based on the given mode.
+ * Optimized for performance using input seeking.
  */
 function trimVideo(inputFile, offset, outputFile, mode) {
   return new Promise((resolve, reject) => {
     let cmd_option;
 
     if (mode === "start_trim") {
+      // Use input seeking (-ss before -i) for much faster performance
+      // This seeks before decoding, avoiding unnecessary frame processing
       cmd_option = [
-        "-i", inputFile, "-ss", String(offset), "-c", "copy", "-y", outputFile,
+        "-ss", String(offset),           // Seek to position (input seeking)
+        "-i", inputFile,                 // Input file
+        "-c", "copy",                    // Copy streams without re-encoding
+        "-avoid_negative_ts", "make_zero", // Handle timestamp issues
+        "-copyts",                       // Preserve original timestamps
+        "-y", outputFile,                // Overwrite output file
       ];
     } else if (mode === "end_trim") {
+      // For end trim, output seeking is necessary
       cmd_option = [
-        "-i", inputFile, "-t", String(offset), "-c", "copy", "-y", outputFile,
+        "-i", inputFile,                 // Input file
+        "-t", String(offset),            // Duration to keep
+        "-c", "copy",                    // Copy streams without re-encoding
+        "-avoid_negative_ts", "make_zero", // Handle timestamp issues
+        "-copyts",                       // Preserve original timestamps
+        "-y", outputFile,                // Overwrite output file
       ];
     }
 
@@ -225,7 +239,11 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     }
 
     console.log(`[processDahuaVideo] Download complete: ${outputVideoFile} (${stats.size} bytes)`);
-    if (requestId) performanceLogger.logStep(requestId, "Output file validated", { fileSize: stats.size, fileName: outputVideoFile });
+    if (requestId) performanceLogger.logStep(requestId, "Output file validated", { 
+      fileSize: stats.size, 
+      fileSizeMB: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
+      fileName: outputVideoFile 
+    });
 
     if (storeEvidence) {
       if (requestId) performanceLogger.logStep(requestId, "Copy to evidence storage");
@@ -244,7 +262,12 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
       toEpoch: requestedEndTime,
     };
 
-    if (requestId) performanceLogger.endRequest(requestId, "success", result);
+    if (requestId) performanceLogger.endRequest(requestId, "success", { 
+      ...result, 
+      fileSize: stats.size,
+      fileSizeMB: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
+      fileName: outputVideoFile
+    });
     res.json(result);
 
   } catch (err) {
@@ -396,8 +419,18 @@ export async function process_video(
       };
 
       if (requestId) {
+        // Get file size for logging
+        const outputFilePath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
+        const fileStats = fs.statSync(outputFilePath);
+        const fileSizeMB = (fileStats.size / (1024 * 1024)).toFixed(2);
+        
         performanceLogger.logStep(requestId, "Cleanup temporary files");
-        performanceLogger.endRequest(requestId, "success", result);
+        performanceLogger.endRequest(requestId, "success", { 
+          ...result, 
+          fileSize: fileStats.size,
+          fileSizeMB: `${fileSizeMB} MB`,
+          fileName: outputVideoFile
+        });
       }
       
       res.json(result);

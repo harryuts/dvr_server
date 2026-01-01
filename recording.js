@@ -26,8 +26,10 @@ export const getRecordingStatus = (channel_number) => {
 
 const channelLogs = {};
 const terminationLogs = {};
+const lastStderrLines = {}; // Store last N stderr lines for termination logging
 const MAX_LOG_LINES = 100;
 const MAX_TERMINATION_LOGS = 50;
+const MAX_LAST_STDERR_LINES = 10;
 
 export const getChannelLogs = (channel_number) => {
   return channelLogs[channel_number] || [];
@@ -41,13 +43,36 @@ const addLog = (channel_number, message) => {
   if (!channelLogs[channel_number]) {
     channelLogs[channel_number] = [];
   }
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date().toLocaleString('en-AU', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
   const logLine = `[${timestamp}] ${message}`;
 
   channelLogs[channel_number].push(logLine);
   if (channelLogs[channel_number].length > MAX_LOG_LINES) {
     channelLogs[channel_number].shift();
   }
+};
+
+const addLastStderrLine = (channel_number, line) => {
+  if (!lastStderrLines[channel_number]) {
+    lastStderrLines[channel_number] = [];
+  }
+  lastStderrLines[channel_number].push(line);
+  if (lastStderrLines[channel_number].length > MAX_LAST_STDERR_LINES) {
+    lastStderrLines[channel_number].shift();
+  }
+};
+
+const getLastStderrLines = (channel_number) => {
+  return lastStderrLines[channel_number] || [];
 };
 
 const addTerminationLog = (channel_number, event) => {
@@ -334,7 +359,7 @@ const startRecording = (
     // Live JPEG output removed to prevent high CPU usage (switched to On-Demand strategy)
     ffmpegProcess = spawn("ffmpeg", args);
     spawnedProcesses.push(ffmpegProcess);
-    
+
     // Store PID early to avoid null reference issues
     ffmpegProcessPid = ffmpegProcess.pid;
 
@@ -367,6 +392,7 @@ const startRecording = (
       const stderrOutput = data.toString();
       updateUptime(channel_number, recordingStartTime);
       addLog(channel_number, stderrOutput.trim()); // Capture stderr to live logs
+      addLastStderrLine(channel_number, stderrOutput.trim()); // Store for termination logging
 
       // Detect new segment opening (strftime format: YYYY-MM-DDTHH-MM-SS.mp4)
       const openingMatch = /Opening '([^']+(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.mp4)'/i.exec(stderrOutput);
@@ -451,13 +477,25 @@ const startRecording = (
         `[${channel_number}] ffmpeg exited with code ${code} and signal ${signal}${pidToUnregister ? ` (PID: ${pidToUnregister})` : ''}`
       );
 
-      addTerminationLog(channel_number, {
-        timestamp: new Date().toISOString(),
-        code: code,
-        signal: signal,
-        uptime: recordingStatus[channel_number]?.uptime || "N/A",
-        reason: code === 0 ? "Graceful Exit" : (code === 255 ? "Connection/Protocol Error" : "Unexpected/Crash")
-      });
+      // Determine detailed reason based on exit code and signal
+      let detailedReason = "Unknown";
+      if (code === 0) {
+        detailedReason = "Graceful Exit";
+      } else if (code === 255) {
+        detailedReason = "Connection/Protocol Error (likely RTSP stream issue)";
+      } else if (signal === 'SIGKILL') {
+        detailedReason = "Killed by SIGKILL (OOM or forced termination)";
+      } else if (signal === 'SIGTERM') {
+        detailedReason = "Killed by SIGTERM (graceful shutdown request)";
+      } else if (signal === 'SIGSEGV') {
+        detailedReason = "Segmentation fault (FFmpeg crash)";
+      } else if (code === 1) {
+        detailedReason = "FFmpeg error (check last stderr for details)";
+      } else if (code !== null) {
+        detailedReason = `Unexpected exit code ${code}`;
+      } else if (signal) {
+        detailedReason = `Killed by signal ${signal}`;
+      }
 
       // Finalize the last video segment if it exists
       if (segmentFile && currentSegmentStartTime) {
@@ -544,35 +582,78 @@ const startRecording = (
 
         return;
       }
-      if (code === 0) {
-        console.error(`[${channel_number}] ffmpeg exited with error code 0`);
+      // Determine restart action and execute
+      let restartAction = "none";
+      let restartDelayMs = 0;
+
+      if (manualStop) {
+        // Already handled above, should not reach here
+        restartAction = "none (manual stop)";
+      } else if (code === 0) {
+        console.log(`[${channel_number}] ffmpeg exited with code 0`);
         isRecording = false;
-        console.log(`stop recording flag: ${getStopRecording()}`);
+        console.log(`[${channel_number}] stop recording flag: ${getStopRecording()}`);
         if (!getStopRecording()) {
-          console.log("restarting ffmpeg process in 10 seconds");
-          setTimeout(spawnFFmpegProcess, 10000);
+          restartAction = "restart in 10s (graceful exit within recording window)";
+          restartDelayMs = 10000;
+          console.log(`[${channel_number}] ${restartAction}`);
+          setTimeout(spawnFFmpegProcess, restartDelayMs);
+        } else {
+          restartAction = "none (outside recording window)";
+          console.log(`[${channel_number}] ${restartAction}`);
         }
       } else if (code === 255) {
         console.error(
           `[${channel_number}] ffmpeg exited with error code 255. Likely an issue with the RTSP stream or ffmpeg.`
         );
         isRecording = false;
-        // setTimeout(spawnFFmpegProcess, 10000);
-      } else if (isRecording && !isKilling) {
-        isRecording = false;
-        console.log(
-          `[${channel_number}] ffmpeg exited unexpectedly (code ${code}, signal ${signal}). Restarting...`
-        );
-        setTimeout(restartRecording, 1000);
+        if (!getStopRecording()) {
+          restartAction = "restart in 10s (connection error within recording window)";
+          restartDelayMs = 10000;
+          console.log(`[${channel_number}] ${restartAction}`);
+          setTimeout(spawnFFmpegProcess, restartDelayMs);
+        } else {
+          restartAction = "none (outside recording window)";
+          console.log(`[${channel_number}] ${restartAction}`);
+        }
       } else {
-        console.log(`[${channel_number}] ffmpeg exited as expected.`);
-        isKilling = false;
+        // Unexpected exit (crash, signal, etc.)
+        console.log(
+          `[${channel_number}] ffmpeg exited unexpectedly (code ${code}, signal ${signal})`
+        );
         isRecording = false;
-        updateRecordingStatus(channel_number, {
-          isRecording: false,
-          currentSegmentFile: null,
-        });
+        isKilling = false;
+
+        // Check if we should restart based on recording window
+        if (!getStopRecording()) {
+          restartAction = "restart in 10s (unexpected crash within recording window)";
+          restartDelayMs = 10000;
+          console.log(`[${channel_number}] ${restartAction}`);
+          setTimeout(restartRecording, restartDelayMs);
+        } else {
+          restartAction = "none (outside recording window)";
+          console.log(`[${channel_number}] ${restartAction}`);
+          updateRecordingStatus(channel_number, {
+            isRecording: false,
+            currentSegmentFile: null,
+          });
+        }
       }
+
+      // Add the comprehensive termination log entry AFTER determining restart action
+      addTerminationLog(channel_number, {
+        timestamp: new Date().toISOString(),
+        pid: pidToUnregister,
+        code: code,
+        signal: signal,
+        uptime: recordingStatus[channel_number]?.uptime || "N/A",
+        reason: detailedReason,
+        lastStderr: getLastStderrLines(channel_number),
+        restartAction: restartAction,
+        restartDelayMs: restartDelayMs > 0 ? restartDelayMs : null,
+        manualStop: manualStop,
+        wasInRecordingWindow: !getStopRecording()
+      });
     });
 
     ffmpegProcess.on("error", (err) => {
@@ -651,7 +732,7 @@ const startRecording = (
       console.log(`[${channel_number}] Manual stop requested.`);
       manualStop = true;
       isRecording = false;
-      
+
       // Unregister from registry before killing
       if (ffmpegProcessPid) {
         try {
@@ -662,7 +743,7 @@ const startRecording = (
           console.error(`[${channel_number}] Failed to unregister FFmpeg process:`, err);
         }
       }
-      
+
       if (ffmpegProcess) {
         try {
           ffmpegProcess.stdin.write("q");
@@ -679,7 +760,7 @@ const startRecording = (
           // The stdin 'q' should trigger exit handler.
         }
       }
-      
+
       // Clear PID reference
       ffmpegProcessPid = null;
     }

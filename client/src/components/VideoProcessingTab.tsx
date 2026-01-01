@@ -185,6 +185,7 @@ const VideoProcessingTab: React.FC = () => {
               <MenuItem value="all">All Endpoints</MenuItem>
               <MenuItem value="getVideo">getVideo</MenuItem>
               <MenuItem value="getLiveVideo">getLiveVideo</MenuItem>
+              <MenuItem value="getPicture">getPicture</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -408,14 +409,76 @@ const VideoProcessingTab: React.FC = () => {
                 <strong>Total Duration:</strong> {formatDuration(selectedLog.totalDuration)}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Start Time:</strong> {new Date(selectedLog.startTime).toLocaleString()}
+                <strong>Request Start Time:</strong>{" "}
+                {new Date(selectedLog.startTime).toLocaleString('en-US', {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: false
+                })}
               </Typography>
               <Typography variant="body2" gutterBottom sx={{ mb: 2 }}>
-                <strong>End Time:</strong> {new Date(selectedLog.endTime).toLocaleString()}
+                <strong>Request End Time:</strong>{" "}
+                {new Date(selectedLog.endTime).toLocaleString('en-US', {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: false
+                })}
               </Typography>
 
               <Typography variant="subtitle1" gutterBottom>
-                <strong>Parameters:</strong>
+                <strong>Video Time Range Requested:</strong>
+              </Typography>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" gutterBottom>
+                  <strong>Video Start Time:</strong>{" "}
+                  {selectedLog.params.startTime
+                    ? new Date(selectedLog.params.startTime as number).toLocaleString('en-US', {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                      })
+                    : 'N/A'}
+                </Typography>
+                <Typography variant="body2" gutterBottom>
+                  <strong>Video End Time:</strong>{" "}
+                  {selectedLog.params.endTime
+                    ? new Date(selectedLog.params.endTime as number).toLocaleString('en-US', {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                      })
+                    : 'N/A'}
+                </Typography>
+                <Typography variant="body2" gutterBottom>
+                  <strong>Duration Requested:</strong>{" "}
+                  {selectedLog.params.duration
+                    ? formatDuration(selectedLog.params.duration as number)
+                    : 'N/A'}
+                </Typography>
+              </Box>
+
+              <Typography variant="subtitle1" gutterBottom>
+                <strong>All Parameters:</strong>
               </Typography>
               <Paper sx={{ p: 2, mb: 2, bgcolor: "background.default" }}>
                 <pre style={{ margin: 0, fontSize: "0.875rem" }}>

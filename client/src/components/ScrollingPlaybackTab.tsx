@@ -71,6 +71,16 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
     const clickDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
     // Track current expected playing URL to prevent stale video updates
     const currentPlayingUrlRef = useRef<string | null>(null);
+    
+    // Configurable playback duration in milliseconds (default: 60 seconds)
+    const [playbackDuration, setPlaybackDuration] = useState<number>(60000);
+
+    // Set first channel when channelData becomes available
+    useEffect(() => {
+        if (channelData.length > 0 && !selectedChannel) {
+            setSelectedChannel(channelData[0].channel);
+        }
+    }, [channelData, selectedChannel]);
 
     useEffect(() => {
         if (!selectedChannel || !selectedDate) return;
@@ -145,7 +155,7 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
                     if (shouldAutoPlay && savedCursorPosition !== null) {
                         const cursorHours = savedCursorPosition;
                         const clickedTimestamp = dayStart + (cursorHours * 60 * 60 * 1000);
-                        const endTime = clickedTimestamp + 60000; // 60 seconds play duration
+                        const endTime = clickedTimestamp + playbackDuration; // Configurable play duration
                         
                         // Small delay to ensure segments are processed
                         setTimeout(async () => {
@@ -161,7 +171,9 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
                                         const videoUrl = `${getApiBaseUrl()}/cctv/${videoData.outputFile}`;
                                         console.log(`[ChannelChange] Auto-playing at cursor position: ${videoUrl}`);
                                         setPlayingUrl(videoUrl);
+                                        setCurrentStartTime(clickedTimestamp); // Set start time for playback tracking
                                         setCurrentEndTime(endTime);
+                                        setCurrentPlaybackTime(clickedTimestamp); // Initialize playback time to show "Playing" text
                                         setLoadingVideo(false);
                                         
                                         // Auto-play the video
@@ -452,15 +464,15 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
                 const w = (endRatio - startRatio) * drawableWidth;
 
                 // Create gap: Draw bar only in top portion (e.g., top 70%) 
-                // Height is 120. Text is at bottom ~20px. 
-                // Let's use height - 40 for the bar height, starting at 10.
-                ctx.fillRect(x, 10, w, height - 50);
+                // Height is 60. Text is at bottom ~10px. 
+                // Let's use height - 25 for the bar height, starting at 5.
+                ctx.fillRect(x, 5, w, height - 25);
             }
         });
 
         // Draw hour markers - adapt based on zoom level
         ctx.fillStyle = '#b0bec5';
-        ctx.font = '14px Arial';
+        ctx.font = '12px Arial';
         ctx.textAlign = 'center';
 
         // Determine marker interval based on zoom
@@ -482,7 +494,7 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
 
             // Draw marker line
             ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-            ctx.fillRect(x, 0, 1, height - 30);
+            ctx.fillRect(x, 0, 1, height - 15);
 
             // Draw time label
             ctx.fillStyle = '#b0bec5';
@@ -581,7 +593,7 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
         console.log(`[ScrollingPlaybackTab] Video ended. Fetching continuation from ${new Date(currentEndTime).toLocaleTimeString()}`);
         
         const now = Date.now();
-        const nextEndTime = currentEndTime + 60000; // Next 60 seconds
+        const nextEndTime = currentEndTime + playbackDuration; // Configurable continuation duration
 
         // Don't continue if we're past "now"
         if (currentEndTime >= now) {
@@ -795,7 +807,7 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
             abortControllerRef.current = abortController;
 
             console.log(`[ScrollingPlaybackTab] Generating stream URL for channel ${selectedChannel} at ${clickedTimestamp}`);
-            const endTime = clickedTimestamp + 60000; // 60 seconds play duration
+            const endTime = clickedTimestamp + playbackDuration; // Configurable play duration
 
             try {
                 const response = await authenticatedFetch(
@@ -879,14 +891,16 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
     };
 
     return (
-        <Box sx={{ p: 3, color: 'text.primary' }}>
-            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+        <Box sx={{ p: 3, color: 'text.primary', display: 'flex', gap: 3, height: 'calc(100vh - 100px)' }}>
+            {/* Left Column - Controls */}
+            <Box sx={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* Channel Selection */}
                 <TextField
                     select
                     label="Channel"
                     value={selectedChannel}
                     onChange={(e) => setSelectedChannel(e.target.value)}
-                    sx={{ width: 200 }}
+                    fullWidth
                     SelectProps={{
                         MenuProps: { PaperProps: { sx: { maxHeight: 300 } } }
                     }}
@@ -898,7 +912,8 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
                     ))}
                 </TextField>
 
-                <FormControl sx={{ minWidth: 200 }}>
+                {/* Date Selection */}
+                <FormControl fullWidth>
                     <InputLabel id="date-select-label">Date</InputLabel>
                     <Select
                         labelId="date-select-label"
@@ -944,168 +959,223 @@ const ScrollingPlaybackTab: React.FC<ScrollingPlaybackTabProps> = ({ channelData
                         })}
                     </Select>
                 </FormControl>
-            </Box>
 
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-            <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Typography variant="subtitle1">Timeline (Click to Play)</Typography>
-                        {currentPlaybackTime && (
-                            <Typography 
-                                variant="body2" 
-                                sx={{ 
-                                    color: 'primary.main', 
-                                    fontWeight: 'bold',
-                                    backgroundColor: 'rgba(25, 118, 210, 0.1)',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px'
-                                }}
-                            >
-                                Playing: {new Date(currentPlaybackTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                            </Typography>
-                        )}
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                            {zoomHours === 24 ? 'Full Day' : `${zoomHours < 1 ? `${Math.round(zoomHours * 60)}min` : `${zoomHours}h`} view`}
-                        </Typography>
-                        <ButtonGroup variant="outlined" size="small">
-                            <Button onClick={handlePanLeft} disabled={panOffsetHours <= 0} title="Pan Left (Shift + ←)">
-                                <ArrowBackIcon />
-                            </Button>
-                            <Button onClick={handlePanRight} disabled={panOffsetHours >= 24 - zoomHours} title="Pan Right (Shift + →)">
-                                <ArrowForwardIcon />
-                            </Button>
-                        </ButtonGroup>
-                        <ButtonGroup variant="outlined" size="small">
-                            <Button onClick={handleZoomIn} disabled={zoomHours <= 0.5} title="Zoom In (+)">
-                                <ZoomInIcon />
-                            </Button>
-                            <Button onClick={handleZoomOut} disabled={zoomHours >= 24} title="Zoom Out (-)">
-                                <ZoomOutIcon />
-                            </Button>
-                            <Button onClick={handleResetZoom} disabled={zoomHours === 24 && panOffsetHours === 0} title="Reset View (Ctrl+0)">
-                                <RestartAltIcon />
-                            </Button>
-                        </ButtonGroup>
-                    </Box>
-                </Box>
-                {zoomHours < 24 && (
-                    <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                        Viewing {Math.floor(panOffsetHours)}:00 to {Math.floor(panOffsetHours + zoomHours)}:00 • Scroll wheel to pan • Shift+Arrow keys to navigate
-                    </Typography>
-                )}
-            </Box>
-            <Paper sx={{ p: 1, backgroundColor: '#122444', mb: 3, position: 'relative' }}>
-                <Box
-                    ref={timelineContainerRef}
-                    sx={{ overflowX: 'auto', position: 'relative' }}
-                >
-                    <canvas
-                    ref={canvasRef}
-                    width={2400}
-                    height={120}
-                    style={{ 
-                        width: zoomHours === 24 ? '100%' : 'auto',
-                        minWidth: zoomHours === 24 
-                            ? '100%' // Fit container when showing full day
-                            : `${canvasWidth}px`, // Use calculated width when zoomed in
-                        cursor: 'pointer', 
-                        display: 'block' 
-                    }}
-                    onClick={handleTimelineClick}
-                    onMouseMove={handleMouseMove}
-                    onMouseLeave={handleMouseLeave}
-                    onWheel={handleWheel}
-                />
-                {tooltipData && (
-                    <div
-                        style={{
-                            position: 'fixed',
-                            top: tooltipData.y - 40,
-                            left: tooltipData.x + 10,
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            color: 'white',
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            pointerEvents: 'none',
-                            zIndex: 1000,
-                            whiteSpace: 'nowrap',
-                            fontSize: '12px'
-                        }}
+                {/* Playback Duration Selection */}
+                <FormControl fullWidth>
+                    <InputLabel id="duration-select-label">Playback Duration</InputLabel>
+                    <Select
+                        labelId="duration-select-label"
+                        label="Playback Duration"
+                        value={playbackDuration}
+                        onChange={(e) => setPlaybackDuration(Number(e.target.value))}
                     >
-                        {tooltipData.timeStr}
-                    </div>
-                )}
-                </Box>
-            </Paper>
+                        <MenuItem value={30000}>30 seconds</MenuItem>
+                        <MenuItem value={60000}>60 seconds</MenuItem>
+                        <MenuItem value={90000}>90 seconds</MenuItem>
+                        <MenuItem value={120000}>120 seconds</MenuItem>
+                    </Select>
+                </FormControl>
 
-            {(playingUrl || loadingVideo) && (
-                <Box sx={{ width: '100%', maxWidth: 800, margin: '0 auto', border: '1px solid #333' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                        <Box>
-                            <Typography variant="h6">
-                                Playback
-                                {currentEndTime && (
-                                    <Typography component="span" variant="caption" color="success.main" sx={{ ml: 2 }}>
-                                        • Auto-continues
-                                    </Typography>
-                                )}
-                            </Typography>
-                            {currentEndTime && (
-                                <Typography variant="caption" color="text.secondary">
-                                    Playing until: {new Date(currentEndTime).toLocaleTimeString()}
-                                </Typography>
-                            )}
+                {/* Playing Status */}
+                {currentPlaybackTime && (
+                    <Paper sx={{ p: 2, backgroundColor: 'rgba(25, 118, 210, 0.1)' }}>
+                        <Typography variant="body2" color="primary.main" fontWeight="bold">
+                            Playing:
+                        </Typography>
+                        <Typography variant="body1" color="primary.main">
+                            {new Date(currentPlaybackTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </Typography>
+                    </Paper>
+                )}
+
+                {/* Navigation Controls */}
+                <Paper sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                        View Controls
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {zoomHours === 24 ? 'Full Day' : `${zoomHours < 1 ? `${Math.round(zoomHours * 60)}min` : `${zoomHours}h`} view`}
+                    </Typography>
+                    
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button 
+                                onClick={handlePanLeft} 
+                                disabled={panOffsetHours <= 0} 
+                                title="Pan Left (Shift + ←)"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                startIcon={<ArrowBackIcon />}
+                            >
+                                Pan Left
+                            </Button>
+                            <Button 
+                                onClick={handlePanRight} 
+                                disabled={panOffsetHours >= 24 - zoomHours} 
+                                title="Pan Right (Shift + →)"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                endIcon={<ArrowForwardIcon />}
+                            >
+                                Pan Right
+                            </Button>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button 
+                                onClick={handleZoomIn} 
+                                disabled={zoomHours <= 0.5} 
+                                title="Zoom In (+)"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                startIcon={<ZoomInIcon />}
+                            >
+                                Zoom In
+                            </Button>
+                            <Button 
+                                onClick={handleZoomOut} 
+                                disabled={zoomHours >= 24} 
+                                title="Zoom Out (-)"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                startIcon={<ZoomOutIcon />}
+                            >
+                                Zoom Out
+                            </Button>
                         </Box>
                         <Button 
-                            variant="outlined" 
-                            size="small" 
-                            color="error"
-                            onClick={() => {
-                                setPlayingUrl(null);
-                                currentPlayingUrlRef.current = null; // Clear tracked URL
-                                setCurrentEndTime(null);
-                                setCurrentStartTime(null);
-                                setCurrentPlaybackTime(null);
-                                setLoadingVideo(false);
-                                isProcessingClick.current = false;
-                                isManualCursorUpdate.current = false;
-                                if (videoRef.current) {
-                                    videoRef.current.pause();
-                                }
-                            }}
+                            onClick={handleResetZoom} 
+                            disabled={zoomHours === 24 && panOffsetHours === 0} 
+                            title="Reset View (Ctrl+0)"
+                            variant="outlined"
+                            size="small"
+                            fullWidth
+                            startIcon={<RestartAltIcon />}
                         >
-                            Stop
+                            Reset View
                         </Button>
                     </Box>
-                    {loadingVideo ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 8, minHeight: 300 }}>
-                            <CircularProgress size={60} sx={{ mb: 2 }} />
-                            <Typography variant="body1" color="text.secondary">
-                                Processing video...
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                This may take a few moments
-                            </Typography>
-                        </Box>
-                    ) : playingUrl && (
-                        /* Stream returns video/mp4, so use video tag */
-                        <video
-                            ref={videoRef}
-                            key={playingUrl}
-                            src={playingUrl}
-                            controls
-                            autoPlay
-                            onTimeUpdate={handleVideoTimeUpdate}
-                            onEnded={handleVideoEnded}
-                            style={{ width: '100%', height: 'auto' }}
-                        />
+                </Paper>
+            </Box>
+
+            {/* Right Column - Timeline and Playback */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                
+                {/* Timeline */}
+                <Paper sx={{ p: 1, backgroundColor: '#122444', mb: 3, position: 'relative' }}>
+                    <Box
+                        ref={timelineContainerRef}
+                        sx={{ overflowX: 'auto', position: 'relative' }}
+                    >
+                        <canvas
+                        ref={canvasRef}
+                        width={2400}
+                        height={60}
+                        style={{ 
+                            width: zoomHours === 24 ? '100%' : 'auto',
+                            minWidth: zoomHours === 24 
+                                ? '100%' // Fit container when showing full day
+                                : `${canvasWidth}px`, // Use calculated width when zoomed in
+                            cursor: 'pointer', 
+                            display: 'block' 
+                        }}
+                        onClick={handleTimelineClick}
+                        onMouseMove={handleMouseMove}
+                        onMouseLeave={handleMouseLeave}
+                        onWheel={handleWheel}
+                    />
+                    {tooltipData && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: tooltipData.y - 40,
+                                left: tooltipData.x + 10,
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                color: 'white',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                pointerEvents: 'none',
+                                zIndex: 1000,
+                                whiteSpace: 'nowrap',
+                                fontSize: '12px'
+                            }}
+                        >
+                            {tooltipData.timeStr}
+                        </div>
                     )}
-                </Box>
-            )}
+                    </Box>
+                </Paper>
+
+                {/* Video Player - 90% width */}
+                {(playingUrl || loadingVideo) && (
+                    <Box sx={{ width: '90%', margin: '0 auto', border: '1px solid #333' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                            <Box>
+                                <Typography variant="h6">
+                                    Playback
+                                    {currentEndTime && (
+                                        <Typography component="span" variant="caption" color="success.main" sx={{ ml: 2 }}>
+                                            • Auto-continues
+                                        </Typography>
+                                    )}
+                                </Typography>
+                                {currentEndTime && (
+                                    <Typography variant="caption" color="text.secondary">
+                                        Playing until: {new Date(currentEndTime).toLocaleTimeString()}
+                                    </Typography>
+                                )}
+                            </Box>
+                            <Button 
+                                variant="outlined" 
+                                size="small" 
+                                color="error"
+                                onClick={() => {
+                                    setPlayingUrl(null);
+                                    currentPlayingUrlRef.current = null; // Clear tracked URL
+                                    setCurrentEndTime(null);
+                                    setCurrentStartTime(null);
+                                    setCurrentPlaybackTime(null);
+                                    setLoadingVideo(false);
+                                    isProcessingClick.current = false;
+                                    isManualCursorUpdate.current = false;
+                                    if (videoRef.current) {
+                                        videoRef.current.pause();
+                                    }
+                                }}
+                            >
+                                Stop
+                            </Button>
+                        </Box>
+                        {loadingVideo ? (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 8, minHeight: 300 }}>
+                                <CircularProgress size={60} sx={{ mb: 2 }} />
+                                <Typography variant="body1" color="text.secondary">
+                                    Processing video...
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                    This may take a few moments
+                                </Typography>
+                            </Box>
+                        ) : playingUrl && (
+                            /* Stream returns video/mp4, so use video tag */
+                            <video
+                                ref={videoRef}
+                                key={playingUrl}
+                                src={playingUrl}
+                                controls
+                                autoPlay
+                                onTimeUpdate={handleVideoTimeUpdate}
+                                onEnded={handleVideoEnded}
+                                style={{ width: '100%', height: 'auto' }}
+                            />
+                        )}
+                    </Box>
+                )}
+            </Box>
         </Box>
     );
 };

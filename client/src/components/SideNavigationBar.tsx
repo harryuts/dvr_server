@@ -83,7 +83,7 @@ const SideNavigationBar: React.FC = () => {
         <Paper
             elevation={3}
             sx={{
-                width: 240,
+                width: 216,
                 height: "100vh",
                 display: "flex",
                 flexDirection: "column",

@@ -63,7 +63,7 @@ const PlaybackPage: React.FC = () => {
   const [channelData, setChannelData] = useState<ChannelInfo[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [seekOffset, setSeekOffset] = useState<number>(0);
-  const [currentTab, setCurrentTab] = useState(0); // 0 = Legacy, 1 = Streaming, 2 = Scrolling
+  const [currentTab, setCurrentTab] = useState(0); // 0 = Scrolling, 1 = Legacy, 2 = Streaming
   const [requestStartTime, setRequestStartTime] = useState<number | null>(null);
   const [datesWithRecordings, setDatesWithRecordings] = useState<Set<string>>(new Set());
 
@@ -172,10 +172,10 @@ const PlaybackPage: React.FC = () => {
       setRequestStartTime(reqStart);
 
       // Determine API endpoint based on tab
-      const endpoint = currentTab === 1 ? "/api/getLiveVideo" : "/api/getVideo"; // 1 is Streaming, 0 is Legacy (Standard)
-      // Actually, user asked for: "one tab is for video playback using the old legacy api approach and another one is using the new api approach"
-      // If currentTab === 0 (Legacy/Standard), I use getVideo
-      // If currentTab === 1 (New/Streaming), I use getLiveVideo
+      const endpoint = currentTab === 2 ? "/api/getLiveVideo" : "/api/getVideo"; // 2 is Streaming, 1 is Legacy
+      // currentTab === 0 is Scrolling (uses different component)
+      // currentTab === 1 is Legacy/Standard, uses getVideo
+      // currentTab === 2 is New/Streaming, uses getLiveVideo
 
       const apiUrl = `${getApiBaseUrl()}${endpoint}?channelNumber=${selectedChannel}&startTime=${startTimeEpoch}&endTime=${endTimeEpoch}`;
 
@@ -217,7 +217,7 @@ const PlaybackPage: React.FC = () => {
 
     // Continuation always uses the same method as original request?
     // Or default to something? Let's use currentTab.
-    const endpoint = currentTab === 1 ? "/api/getLiveVideo" : "/api/getVideo";
+    const endpoint = currentTab === 2 ? "/api/getLiveVideo" : "/api/getVideo";
     const apiUrl = `${getApiBaseUrl()}${endpoint}?channelNumber=${selectedChannel}&startTime=${lastEndTime}&endTime=${now}`;
 
     try {
@@ -267,13 +267,13 @@ const PlaybackPage: React.FC = () => {
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
         <Tabs value={currentTab} onChange={handleTabChange} aria-label="playback mode tabs">
+          <Tab label="Scrolling (Timeline)" />
           <Tab label="Legacy Download (Wait)" />
           <Tab label="Direct Streaming (Instant)" />
-          <Tab label="Scrolling (Timeline)" />
         </Tabs>
       </Box>
 
-      {currentTab === 2 ? (
+      {currentTab === 0 ? (
         <ScrollingPlaybackTab channelData={channelData} />
       ) : (
         <Container maxWidth="sm">

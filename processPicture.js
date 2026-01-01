@@ -4,11 +4,14 @@ import path from "path";
 import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { db } from "./dbFunctions.js";
 import { getRecordingStatus } from "./recording.js";
+import performanceLogger from "./performanceLogger.js";
 //======================================================
 // Access baseVideoDirectory dynamically from configManager
 //======================================================
 
-async function process_picture(res, files, channelNumber, startTime, orderId) {
+async function process_picture(res, files, channelNumber, startTime, orderId, requestId = null) {
+  if (requestId) performanceLogger.logStep(requestId, "Process picture - start", { fileCount: files.length });
+  
   let fileList = files.map((f) => f.filename);
   const outputPicturePath = path.join(
     configManager.baseVideoDirectory,
@@ -19,14 +22,20 @@ async function process_picture(res, files, channelNumber, startTime, orderId) {
     (parseFloat(startTime) - files[0].start_time) / 1000
   );
   if (picturePosition === 0) picturePosition = 1;
+  
+  if (requestId) performanceLogger.logStep(requestId, "Calculate frame position", { picturePosition, sourceFile: fileList[0] });
+  if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - start");
+  
+  // Optimized FFmpeg command for fast frame extraction
   const ffmpegCmd = spawn("ffmpeg", [
-    "-ss",
-    `${picturePosition}`,
-    "-i",
-    fileList[0],
-    "-y",
-    "-vframes",
-    "1",
+    "-ss", `${picturePosition}`,        // Input seeking (fast - seeks before decoding)
+    "-i", fileList[0],                  // Input file
+    "-frames:v", "1",                   // Extract exactly 1 frame (modern syntax)
+    "-q:v", "2",                        // JPEG quality (2 = high quality, 1-31 scale)
+    "-an",                              // Skip audio processing (no audio needed for image)
+    "-vsync", "vfr",                    // Variable frame rate (faster for single frame)
+    "-update", "1",                     // Single image output mode
+    "-y",                               // Overwrite output file
     outputPicturePath,
   ]);
 
@@ -37,27 +46,48 @@ async function process_picture(res, files, channelNumber, startTime, orderId) {
     ffmpegCmd.on("close", (code) => {
       unregisterFFmpegProcess(ffmpegCmd.pid);
       if (code !== 0) {
+        if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg frame extraction failed", exitCode: code });
         return res.status(500).send("Error processing the picture.");
       }
-      res.json({
-        outputFile: outputPicturePath,
-      });
+      
+      if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - complete", { outputFile: outputPicturePath });
+      
+      const result = { outputFile: outputPicturePath };
+      if (requestId) performanceLogger.endRequest(requestId, "success", result);
+      
+      res.json(result);
     });
   }).catch(() => {
     // Fallback
     ffmpegCmd.on("close", (code) => {
       if (code !== 0) {
+        if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg frame extraction failed", exitCode: code });
         return res.status(500).send("Error processing the picture.");
       }
-      res.json({
-        outputFile: outputPicturePath,
-      });
+      
+      if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - complete", { outputFile: outputPicturePath });
+      
+      const result = { outputFile: outputPicturePath };
+      if (requestId) performanceLogger.endRequest(requestId, "success", result);
+      
+      res.json(result);
     });
   });
 }
 
 export async function getPicture(req, res) {
   const { startTime, channelNumber, orderId } = req.query;
+  const requestId = `getPicture_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
+  // Start performance tracking
+  performanceLogger.startRequest(requestId, "getPicture", {
+    channelNumber,
+    startTime: parseInt(startTime),
+    orderId,
+  });
+  
+  performanceLogger.logStep(requestId, "Query database for segment");
+  
   const query = `SELECT filename, start_time, end_time FROM video_segments WHERE channel_number = ? AND start_time <= ? AND end_time >= ? ORDER BY start_time ASC`;
   let files;
   db.all(
@@ -66,10 +96,15 @@ export async function getPicture(req, res) {
     (err, rows) => {
       if (err) {
         console.error(err.message);
+        performanceLogger.endRequest(requestId, "error", { error: "Database query failed" });
         return;
       }
+      
+      performanceLogger.logStep(requestId, "Database query complete", { segmentsFound: rows.length });
+      
       files = rows;
       if (files.length === 0) {
+        performanceLogger.logStep(requestId, "Check recording status");
         const recStatus = getRecordingStatus(channelNumber);
         if (
           recStatus &&
@@ -85,16 +120,20 @@ export async function getPicture(req, res) {
                 end_time: Date.now(),
               },
             ];
+            performanceLogger.logStep(requestId, "Using current recording segment");
           }
         }
       }
 
       if (files.length === 0) {
+        performanceLogger.endRequest(requestId, "error", { error: "No picture found" });
         return res
           .status(404)
           .send("No picture found for the specified time range.");
       }
-      process_picture(res, files, channelNumber, startTime, orderId);
+      
+      performanceLogger.logStep(requestId, "Start picture extraction");
+      process_picture(res, files, channelNumber, startTime, orderId, requestId);
     }
   );
 }
