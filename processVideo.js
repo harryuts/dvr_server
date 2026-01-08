@@ -1,5 +1,5 @@
 import fs from "fs";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { db } from "./dbFunctions.js";
@@ -15,6 +15,30 @@ const __dirname = path.dirname(__filename);
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
 const ERROR_LOG_FILE = path.join(__dirname, "video_processing_error.log");
 //======================================================
+
+// FFmpeg version detection - cached for performance
+let ffmpegMajorVersion = null;
+
+const getFFmpegMajorVersion = () => {
+  if (ffmpegMajorVersion !== null) {
+    return ffmpegMajorVersion;
+  }
+  try {
+    const versionOutput = execSync('ffmpeg -version', { encoding: 'utf8', timeout: 5000 });
+    const versionMatch = versionOutput.match(/ffmpeg version (\d+)\.(\d+)/);
+    if (versionMatch) {
+      ffmpegMajorVersion = parseInt(versionMatch[1], 10);
+      console.log(`[processVideo] FFmpeg version detected: ${versionMatch[1]}.${versionMatch[2]} (major: ${ffmpegMajorVersion})`);
+    } else {
+      console.warn('[processVideo] Could not parse FFmpeg version, defaulting to v4 compatibility mode');
+      ffmpegMajorVersion = 4;
+    }
+  } catch (err) {
+    console.error('[processVideo] Failed to detect FFmpeg version:', err.message);
+    ffmpegMajorVersion = 4;
+  }
+  return ffmpegMajorVersion;
+};
 
 // Helper to check if file exists
 async function fileExists(path) {
@@ -161,7 +185,7 @@ function formatDahuaTime(date) {
  */
 async function processDahuaVideo(req, res, channelConfig, requestedStartTime, requestedEndTime, storeEvidence, orderId, requestId = null) {
   console.log(`[processDahuaVideo] Processing Dahua video for channel ${channelConfig.channel}`);
-  
+
   if (requestId) performanceLogger.logStep(requestId, "Dahua video processing - start");
 
   const startDate = new Date(requestedStartTime);
@@ -192,13 +216,23 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     outputVideoFile
   );
 
-  // Spawn FFmpeg to download the stream
-  const args = [
-    "-y", "-v", "error", "-rtsp_transport", "tcp", "-i", fullUrl,
+  // Spawn FFmpeg to download the stream (version-aware)
+  const ffmpegVersion = getFFmpegMajorVersion();
+  const args = ["-y", "-v", "error", "-rtsp_transport", "tcp"];
+
+  // Add socket timeout: -stimeout for v4.x, -timeout for v5+
+  if (ffmpegVersion >= 5) {
+    args.push("-timeout", "5000000"); // 5 seconds socket timeout (FFmpeg 5+)
+  } else {
+    args.push("-stimeout", "5000000"); // 5 seconds socket timeout (FFmpeg 4.x)
+  }
+
+  args.push(
+    "-i", fullUrl,
     "-c:v", "copy", "-c:a", "aac",
     "-movflags", "+faststart",
     outputVideoPath
-  ];
+  );
 
   console.log(`[processDahuaVideo] Spawning FFmpeg...`);
   if (requestId) performanceLogger.logStep(requestId, "FFmpeg download - start");
@@ -239,10 +273,10 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
     }
 
     console.log(`[processDahuaVideo] Download complete: ${outputVideoFile} (${stats.size} bytes)`);
-    if (requestId) performanceLogger.logStep(requestId, "Output file validated", { 
-      fileSize: stats.size, 
+    if (requestId) performanceLogger.logStep(requestId, "Output file validated", {
+      fileSize: stats.size,
       fileSizeMB: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
-      fileName: outputVideoFile 
+      fileName: outputVideoFile
     });
 
     if (storeEvidence) {
@@ -262,8 +296,8 @@ async function processDahuaVideo(req, res, channelConfig, requestedStartTime, re
       toEpoch: requestedEndTime,
     };
 
-    if (requestId) performanceLogger.endRequest(requestId, "success", { 
-      ...result, 
+    if (requestId) performanceLogger.endRequest(requestId, "success", {
+      ...result,
       fileSize: stats.size,
       fileSizeMB: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
       fileName: outputVideoFile
@@ -298,9 +332,9 @@ export async function process_video(
   const startTimeStr = new Date(parseInt(startTime)).toLocaleTimeString();
   const endTimeStr = new Date(parseInt(endTime)).toLocaleTimeString();
   console.log(`[process_video] Start. Files: ${files.length}, Start: ${startTimeStr}, End: ${endTimeStr}`);
-  
+
   if (requestId) performanceLogger.logStep(requestId, "Process video - start", { fileCount: files.length });
-  
+
   const trimmed_files = [];
   let fileList = files.map((f) => f.filename);
 
@@ -393,14 +427,14 @@ export async function process_video(
     ffmpegCmd.on("close", (code) => {
       unregisterFFmpegProcess(ffmpegCmd.pid);
       console.log(`[process_video] FFmpeg process exited with code ${code}`);
-      
+
       if (code !== 0) {
         if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg concatenation failed", exitCode: code });
         return res.status(500).send("Error processing the video.");
       }
-      
+
       if (requestId) performanceLogger.logStep(requestId, "FFmpeg concatenation - complete");
-      
+
       if (storeEvidence) {
         if (requestId) performanceLogger.logStep(requestId, "Copy to evidence storage");
         const sourcePath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
@@ -409,7 +443,7 @@ export async function process_video(
           if (err) console.log("evidence file copy error");
         });
       }
-      
+
       const result = {
         outputFile: outputVideoFile,
         from: new Date(parseInt(startTime)).toLocaleTimeString(),
@@ -423,16 +457,16 @@ export async function process_video(
         const outputFilePath = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, outputVideoFile);
         const fileStats = fs.statSync(outputFilePath);
         const fileSizeMB = (fileStats.size / (1024 * 1024)).toFixed(2);
-        
+
         performanceLogger.logStep(requestId, "Cleanup temporary files");
-        performanceLogger.endRequest(requestId, "success", { 
-          ...result, 
+        performanceLogger.endRequest(requestId, "success", {
+          ...result,
           fileSize: fileStats.size,
           fileSizeMB: `${fileSizeMB} MB`,
           fileName: outputVideoFile
         });
       }
-      
+
       res.json(result);
 
       // Cleanup
@@ -484,10 +518,18 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
 
   // Handle audio: Audio is AAC (LC) 16000 Hz mono from RTSP
   // Need to resample to 44100 Hz and convert to stereo for better web compatibility
-  // Use fragmented MP4 with proper audio track inclusion
-  const args = [
-    "-y", "-v", "warning",
-    "-rtsp_transport", "tcp",
+  // Use fragmented MP4 with proper audio track inclusion (version-aware)
+  const ffmpegVersion = getFFmpegMajorVersion();
+  const args = ["-y", "-v", "warning", "-rtsp_transport", "tcp"];
+
+  // Add socket timeout: -stimeout for v4.x, -timeout for v5+
+  if (ffmpegVersion >= 5) {
+    args.push("-timeout", "5000000"); // 5 seconds socket timeout (FFmpeg 5+)
+  } else {
+    args.push("-stimeout", "5000000"); // 5 seconds socket timeout (FFmpeg 4.x)
+  }
+
+  args.push(
     "-i", fullUrl,
     "-map", "0:v", // Map video stream
     "-map", "0:a", // Map audio stream (required - will fail if no audio)
@@ -501,7 +543,7 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
     "-fflags", "+genpts", // Generate presentation timestamps for better seeking
     "-movflags", "frag_keyframe+faststart+default_base_moof", // Fragmented MP4 with faststart to include track info early
     "-f", "mp4", "-"
-  ];
+  );
 
   res.writeHead(200, {
     "Content-Type": "video/mp4",
@@ -516,47 +558,47 @@ async function streamDahuaVideo(req, res, channelConfig, requestedStartTime, req
     storeProcessInstance(ffmpeg.pid, ffmpeg);
 
     ffmpeg.stdout.pipe(res);
-    
+
     // Enhanced logging to debug audio issues
     let stderrBuffer = '';
     let audioStreamDetected = false;
     let audioOutputDetected = false;
-    
+
     ffmpeg.stderr.on('data', (data) => {
       const message = data.toString();
       stderrBuffer += message;
-      
+
       const lowerMessage = message.toLowerCase();
-      
+
       // Check for input audio stream
       if (lowerMessage.includes('stream #0') && lowerMessage.includes('audio')) {
         audioStreamDetected = true;
         console.log(`[streamDahuaVideo] ✅ Input audio stream detected: ${message.trim()}`);
       }
-      
+
       // Check for output audio stream
       if (lowerMessage.includes('stream #') && lowerMessage.includes('audio') && lowerMessage.includes('->')) {
         audioOutputDetected = true;
         console.log(`[streamDahuaVideo] ✅ Output audio stream created: ${message.trim()}`);
       }
-      
+
       // Log all audio/stream related messages
-      if (lowerMessage.includes('audio') || 
-          lowerMessage.includes('stream') || 
-          lowerMessage.includes('error') || 
-          lowerMessage.includes('warning') ||
-          lowerMessage.includes('input') ||
-          lowerMessage.includes('output') ||
-          lowerMessage.includes('mapping')) {
+      if (lowerMessage.includes('audio') ||
+        lowerMessage.includes('stream') ||
+        lowerMessage.includes('error') ||
+        lowerMessage.includes('warning') ||
+        lowerMessage.includes('input') ||
+        lowerMessage.includes('output') ||
+        lowerMessage.includes('mapping')) {
         console.log(`[streamDahuaVideo] FFmpeg: ${message.trim()}`);
       }
     });
-    
+
     // On process start, log initial stream info
     ffmpeg.on('spawn', () => {
       console.log(`[streamDahuaVideo] FFmpeg process started with args: ${args.join(' ')}`);
     });
-    
+
     // Check audio status after a short delay
     setTimeout(() => {
       if (!audioStreamDetected) {
@@ -668,25 +710,25 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime, 
       storeProcessInstance(ffmpeg.pid, ffmpeg);
 
       ffmpeg.stdout.pipe(res);
-      
+
       // Enhanced logging to detect audio in pre-recorded files
       let audioDetected = false;
       ffmpeg.stderr.on('data', (data) => {
         const message = data.toString();
         const lowerMessage = message.toLowerCase();
-        
+
         // Log errors and warnings
         if (lowerMessage.includes('error') || lowerMessage.includes('warning')) {
           console.log(`[streamStandardVideo] FFmpeg: ${message.trim()}`);
         }
-        
+
         // Check for audio stream detection
         if (lowerMessage.includes('stream #') && lowerMessage.includes('audio')) {
           audioDetected = true;
           console.log(`[streamStandardVideo] ✅ Audio stream detected in pre-recorded files: ${message.trim()}`);
         }
       });
-      
+
       // Check audio status after a delay
       setTimeout(() => {
         if (!audioDetected) {
@@ -737,7 +779,7 @@ async function streamStandardVideo(req, res, channelNumber, startTime, endTime, 
 export async function getVideo(req, res) {
   const { startTime, endTime, channelNumber, storeEvidence, orderId } = req.query;
   const requestId = `getVideo_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  
+
   let requestedStartTime = parseInt(startTime);
   let requestedEndTime = parseInt(endTime);
   const now = Date.now();
@@ -772,7 +814,7 @@ export async function getVideo(req, res) {
     performanceLogger.logStep(requestId, "Check recording status");
     const recordingStatus = getRecordingStatus(channelNumber);
     let inProgressSegment = null;
-    
+
     if (recordingStatus.isRecording && recordingStatus.currentSegmentFile && recordingStatus.currentSegmentStartTime && requestedEndTime > recordingStatus.currentSegmentStartTime) {
       performanceLogger.logStep(requestId, "Extract partial segment - start");
       const partialOutputFile = path.join(configManager.baseVideoDirectory, VIDEO_OUTPUT_DIR, `partial_${Date.now()}.mp4`);
@@ -793,14 +835,14 @@ export async function getVideo(req, res) {
         performanceLogger.endRequest(requestId, "error", { error: "Database query failed" });
         return res.status(404).send("Unable to query database.");
       }
-      
+
       performanceLogger.logStep(requestId, "Database query complete", { segmentsFound: rows.length });
-      
+
       if (rows.length === 0 && !inProgressSegment) {
         performanceLogger.endRequest(requestId, "error", { error: "No video found" });
         return res.status(404).send("No video found.");
       }
-      
+
       performanceLogger.logStep(requestId, "Start video processing");
       process_video(res, rows, requestedStartTime, requestedEndTime, storeEvidence, orderId, inProgressSegment, requestId);
     });
@@ -817,7 +859,7 @@ export async function getVideo(req, res) {
 export async function getLiveVideo(req, res) {
   const { startTime, endTime, channelNumber } = req.query;
   const requestId = `getLiveVideo_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  
+
   let requestedStartTime = parseInt(startTime);
   let requestedEndTime = parseInt(endTime);
   const now = Date.now();
@@ -899,7 +941,7 @@ export async function streamVideo(req, res) {
 
   // Get session ID from request (set by authenticateSession middleware)
   const sessionId = req.sessionId || null;
-  
+
   // Kill any previous streams for this session BEFORE starting a new one
   // Do this synchronously to prevent multiple streams from starting
   if (sessionId) {
@@ -915,7 +957,7 @@ export async function streamVideo(req, res) {
       console.error("[streamVideo] Error killing previous streams:", err);
     }
   }
-  
+
   // Handle client disconnect - kill stream immediately
   req.on('close', () => {
     console.log(`[streamVideo] Client disconnected, stream will be cleaned up by process handlers`);

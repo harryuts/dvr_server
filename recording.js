@@ -1,12 +1,36 @@
 import { format } from "date-fns";
 import path from "path";
 import fs from "fs";
-import { spawn, exec } from "child_process";
+import { spawn, exec, execSync } from "child_process";
 import os from "os";
 import storageManager from "./storage-management.js"; // Import the storage management module
 import configManager, { liveCaptureFrameRate } from "./configManager.js";
 
 const CAPTURE_SEGMENT_DURATION = configManager.segmentDuration;
+
+// FFmpeg version detection - cached for performance
+let ffmpegMajorVersion = null;
+
+const getFFmpegMajorVersion = () => {
+  if (ffmpegMajorVersion !== null) {
+    return ffmpegMajorVersion;
+  }
+  try {
+    const versionOutput = execSync('ffmpeg -version', { encoding: 'utf8', timeout: 5000 });
+    const versionMatch = versionOutput.match(/ffmpeg version (\d+)\.(\d+)/);
+    if (versionMatch) {
+      ffmpegMajorVersion = parseInt(versionMatch[1], 10);
+      console.log(`[FFmpeg] Detected version: ${versionMatch[1]}.${versionMatch[2]} (major: ${ffmpegMajorVersion})`);
+    } else {
+      console.warn('[FFmpeg] Could not parse version, defaulting to v4 compatibility mode');
+      ffmpegMajorVersion = 4;
+    }
+  } catch (err) {
+    console.error('[FFmpeg] Failed to detect version:', err.message);
+    ffmpegMajorVersion = 4; // Default to v4 for backward compatibility
+  }
+  return ffmpegMajorVersion;
+};
 // Access baseVideoDirectory dynamically from configManager
 const MAX_STORAGE_PERCENTAGE = 90;
 const recordingStatus = {};
@@ -319,14 +343,22 @@ const startRecording = (
     const liveJpegPath = path.join(channelDirectoryBase, "live.jpg");
     let currentSegmentStartTime = null;
 
-    // Build FFmpeg Arguments
+    // Build FFmpeg Arguments (version-aware)
+    const ffmpegVersion = getFFmpegMajorVersion();
     let args = [
       "-y",
       "-fflags", "+genpts+discardcorrupt",
       "-rtsp_transport", "tcp",
-      "-stimeout", "5000000", // 5 seconds timeout for socket
-      "-i", CAPTURE_SOURCE_URL,
     ];
+
+    // -stimeout was deprecated in FFmpeg 5.x and removed in 6.x, use -timeout instead
+    if (ffmpegVersion >= 5) {
+      args.push("-timeout", "5000000"); // 5 seconds timeout for socket (FFmpeg 5+)
+    } else {
+      args.push("-stimeout", "5000000"); // 5 seconds timeout for socket (FFmpeg 4.x)
+    }
+
+    args.push("-i", CAPTURE_SOURCE_URL);
 
     console.log(`[${channel_number}] Spawning FFmpeg with args:`, args.join(" "));
 
@@ -334,6 +366,7 @@ const startRecording = (
       // Standard Recording Args - Include audio if available
       // Optimized for SSD: faster writes, immediate flushing, multi-threaded
       const cpuCount = os.cpus().length;
+      // Base recording arguments
       args.push(
         "-threads", cpuCount.toString(), // Use all CPU cores for processing
         "-map", "0:v", // Map video stream
@@ -343,14 +376,23 @@ const startRecording = (
         "-b:a", "128k", // Audio bitrate
         "-ar", "44100", // Sample rate
         "-ac", "2", // Convert to stereo if needed
-        "-flush_packets", "1", // Flush packets immediately (optimized for SSD)
-        "-async_depth", "1", // Reduce async depth for faster writes
+        "-flush_packets", "1" // Flush packets immediately (optimized for SSD)
+      );
+
+      // Version-specific arguments: -async_depth and -write_index removed in FFmpeg 5+
+      if (ffmpegVersion < 5) {
+        args.push(
+          "-async_depth", "1", // Reduce async depth for faster writes (FFmpeg 4.x only)
+          "-write_index", "0" // Disable index writing during recording (FFmpeg 4.x only)
+        );
+      }
+
+      args.push(
         "-f", "segment",
         "-segment_time", CAPTURE_SEGMENT_DURATION.toString(),
         "-segment_atclocktime", "1",
         "-strftime", "1",
         "-reset_timestamps", "1",
-        "-write_index", "0", // Disable index writing during recording (faster, index created on close)
         "-segment_format_options", "movflags=+frag_keyframe+faststart+empty_moov", // Optimized for SSD: faststart + empty_moov for faster writes
         "-y", segmentFileTemplate
       );

@@ -1,5 +1,5 @@
 import fs from "fs";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import configManager, { VIDEO_OUTPUT_DIR, EVIDENCE_DIR } from "./configManager.js";
 import { db } from "./dbFunctions.js";
@@ -9,9 +9,33 @@ import performanceLogger from "./performanceLogger.js";
 // Access baseVideoDirectory dynamically from configManager
 //======================================================
 
+// FFmpeg version detection - cached for performance
+let ffmpegMajorVersion = null;
+
+const getFFmpegMajorVersion = () => {
+  if (ffmpegMajorVersion !== null) {
+    return ffmpegMajorVersion;
+  }
+  try {
+    const versionOutput = execSync('ffmpeg -version', { encoding: 'utf8', timeout: 5000 });
+    const versionMatch = versionOutput.match(/ffmpeg version (\d+)\.(\d+)/);
+    if (versionMatch) {
+      ffmpegMajorVersion = parseInt(versionMatch[1], 10);
+      console.log(`[processPicture] FFmpeg version detected: ${versionMatch[1]}.${versionMatch[2]} (major: ${ffmpegMajorVersion})`);
+    } else {
+      console.warn('[processPicture] Could not parse FFmpeg version, defaulting to v4 compatibility mode');
+      ffmpegMajorVersion = 4;
+    }
+  } catch (err) {
+    console.error('[processPicture] Failed to detect FFmpeg version:', err.message);
+    ffmpegMajorVersion = 4; // Default to v4 for backward compatibility
+  }
+  return ffmpegMajorVersion;
+};
+
 async function process_picture(res, files, channelNumber, startTime, orderId, requestId = null) {
   if (requestId) performanceLogger.logStep(requestId, "Process picture - start", { fileCount: files.length });
-  
+
   let fileList = files.map((f) => f.filename);
   const outputPicturePath = path.join(
     configManager.baseVideoDirectory,
@@ -22,10 +46,10 @@ async function process_picture(res, files, channelNumber, startTime, orderId, re
     (parseFloat(startTime) - files[0].start_time) / 1000
   );
   if (picturePosition === 0) picturePosition = 1;
-  
+
   if (requestId) performanceLogger.logStep(requestId, "Calculate frame position", { picturePosition, sourceFile: fileList[0] });
   if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - start");
-  
+
   // Optimized FFmpeg command for fast frame extraction
   const ffmpegCmd = spawn("ffmpeg", [
     "-ss", `${picturePosition}`,        // Input seeking (fast - seeks before decoding)
@@ -49,12 +73,12 @@ async function process_picture(res, files, channelNumber, startTime, orderId, re
         if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg frame extraction failed", exitCode: code });
         return res.status(500).send("Error processing the picture.");
       }
-      
+
       if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - complete", { outputFile: outputPicturePath });
-      
+
       const result = { outputFile: outputPicturePath };
       if (requestId) performanceLogger.endRequest(requestId, "success", result);
-      
+
       res.json(result);
     });
   }).catch(() => {
@@ -64,12 +88,12 @@ async function process_picture(res, files, channelNumber, startTime, orderId, re
         if (requestId) performanceLogger.endRequest(requestId, "error", { error: "FFmpeg frame extraction failed", exitCode: code });
         return res.status(500).send("Error processing the picture.");
       }
-      
+
       if (requestId) performanceLogger.logStep(requestId, "FFmpeg frame extraction - complete", { outputFile: outputPicturePath });
-      
+
       const result = { outputFile: outputPicturePath };
       if (requestId) performanceLogger.endRequest(requestId, "success", result);
-      
+
       res.json(result);
     });
   });
@@ -78,16 +102,16 @@ async function process_picture(res, files, channelNumber, startTime, orderId, re
 export async function getPicture(req, res) {
   const { startTime, channelNumber, orderId } = req.query;
   const requestId = `getPicture_${channelNumber}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  
+
   // Start performance tracking
   performanceLogger.startRequest(requestId, "getPicture", {
     channelNumber,
     startTime: parseInt(startTime),
     orderId,
   });
-  
+
   performanceLogger.logStep(requestId, "Query database for segment");
-  
+
   const query = `SELECT filename, start_time, end_time FROM video_segments WHERE channel_number = ? AND start_time <= ? AND end_time >= ? ORDER BY start_time ASC`;
   let files;
   db.all(
@@ -99,9 +123,9 @@ export async function getPicture(req, res) {
         performanceLogger.endRequest(requestId, "error", { error: "Database query failed" });
         return;
       }
-      
+
       performanceLogger.logStep(requestId, "Database query complete", { segmentsFound: rows.length });
-      
+
       files = rows;
       if (files.length === 0) {
         performanceLogger.logStep(requestId, "Check recording status");
@@ -131,7 +155,7 @@ export async function getPicture(req, res) {
           .status(404)
           .send("No picture found for the specified time range.");
       }
-      
+
       performanceLogger.logStep(requestId, "Start picture extraction");
       process_picture(res, files, channelNumber, startTime, orderId, requestId);
     }
@@ -444,17 +468,35 @@ async function process_jpeg_live(res, rtspUrl, channelNumber, orderId) {
   );
   console.log("Output path:", outputPicturePath);
 
-  // FFmpeg arguments for live capture from RTSP
+  // FFmpeg arguments for live capture from RTSP (version-aware)
+  const ffmpegVersion = getFFmpegMajorVersion();
+
+  // Build args with version-appropriate socket timeout
   const ffmpegArgs = [
-    "-hwaccel", "auto",        // Try to use hardware acceleration
+    "-fflags", "+genpts+discardcorrupt", // Required for FFmpeg 6 RTSP handling
     "-rtsp_transport", "tcp",  // Use TCP for more reliable connection
+  ];
+
+  // Add socket timeout: -stimeout for v4.x, -timeout for v5+
+  if (ffmpegVersion >= 5) {
+    ffmpegArgs.push("-timeout", "5000000"); // 5 seconds socket timeout (FFmpeg 5+)
+  } else {
+    ffmpegArgs.push("-stimeout", "5000000"); // 5 seconds socket timeout (FFmpeg 4.x)
+  }
+
+  ffmpegArgs.push(
     "-i", rtspUrl,             // Input RTSP URL
     "-y",                      // Overwrite output file
-    "-vframes", "1",           // Capture only 1 frame
+    "-frames:v", "1",          // Capture only 1 frame (modern syntax)
     "-q:v", "2",               // High quality JPEG
-    "-t", "5",                 // Timeout after 5 seconds
-    outputPicturePath,
-  ];
+  );
+
+  // FFmpeg 6+ requires -update 1 for single image output
+  if (ffmpegVersion >= 6) {
+    ffmpegArgs.push("-update", "1");
+  }
+
+  ffmpegArgs.push(outputPicturePath);
 
   console.log("FFmpeg command:", "ffmpeg", ffmpegArgs.join(" "));
 
